@@ -1,0 +1,122 @@
+# =========================
+# ROOT ENV
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# NODE (Frontend + Backend)
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# FRONTEND (React / Next)
+# =========================
+client/node_modules/
+client/build/
+client/dist/
+client/.next/
+client/out/
+client/.env*
+backend.7z
+backend/src/data/
+docs
+
+# =========================
+# BACKEND (Node / Express)
+# =========================
+server/node_modules/
+server/logs/
+server/uploads/
+server/tmp/
+server/.env*
+
+# =========================
+# BUILD FILES
+# =========================
+dist/
+build/
+coverage/
+.next/
+out/
+
+# =========================
+# PYTHON / ML / AI
+# =========================
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python tools
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# ML models (optional – ignore heavy files)
+*.h5
+*.pt
+*.pth
+*.ckpt
+*.joblib
+*.pkl
+
+# =========================
+# DATABASE
+# =========================
+*.sqlite3
+*.db
+
+# =========================
+# LOGS
+# =========================
+logs/
+*.log
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# EDITORS
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# TEMP FILES
+# =========================
+tmp/
+temp/
+*.tmp
+
+# =========================
+# UPLOADS / GENERATED
+# =========================
+uploads/
+media/
+generated/
+
+# =========================
+# DOCKER (optional)
+# =========================
+docker-compose.override.yml
+
+# =========================
+# MISC
+# =========================
+*.swp
+*.swo
+
+sample_data
