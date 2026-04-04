@@ -5,7 +5,7 @@ const actions = [
   {
     href: "/analyzer",
     icon: TrendingUp,
-    title: "Analyze Dataset",
+    title: "Launch FairLens",
     description: "Upload and scan for hidden demographic drift",
     accent: "primary"
   },

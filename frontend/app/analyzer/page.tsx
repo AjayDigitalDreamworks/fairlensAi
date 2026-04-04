@@ -2,10 +2,33 @@
 
 import Layout from "@/components/Layout";
 import { Button } from "@/components/ui/button";
-import { uploadAnalysis } from "@/lib/api";
-import { saveAnalysis } from "@/lib/analysis-store";
-import type { AnalysisLogEntry, AnalysisPayload } from "@/types/analysis";
-import { Activity, ArrowRight, CheckCircle2, Clapperboard, Film, Loader2, Radar, ShieldAlert, Upload } from "lucide-react";
+import {
+  formatMetric,
+  formatRelativeTime,
+  getCorrectedScore,
+  getCorrectedSensitiveFindings,
+} from "@/lib/analysis-insights";
+import { getCorrectedCsvUrl, getPdfReportUrl, listAnalyses, uploadAnalysis } from "@/lib/api";
+import { loadAnalysisHistory, saveAnalysis } from "@/lib/analysis-store";
+import type { AnalysisLogEntry, AnalysisPayload, SensitiveFinding } from "@/types/analysis";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  CheckCircle2,
+  Clapperboard,
+  Download,
+  Film,
+  FileText,
+  History,
+  Loader2,
+  Radar,
+  ShieldAlert,
+  ShieldCheck,
+  Target,
+  Upload,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
@@ -26,7 +49,21 @@ export default function DatasetAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisPayload | null>(null);
+  const [history, setHistory] = useState<AnalysisPayload[]>([]);
   const [liveIndex, setLiveIndex] = useState(0);
+
+  useEffect(() => {
+    async function hydrateHistory() {
+      try {
+        const items = await listAnalyses();
+        setHistory(items);
+      } catch {
+        setHistory(loadAnalysisHistory());
+      }
+    }
+
+    hydrateHistory();
+  }, []);
 
   useEffect(() => {
     if (!loading) {
@@ -58,11 +95,22 @@ export default function DatasetAnalyzer() {
     }));
   }, [analysis, liveIndex, loading]);
 
-  const correctedScore =
-    analysis?.result.artifacts?.corrected_fairness_summary?.overall_fairness_score ??
-    analysis?.result.fairness_summary.corrected_fairness_score;
+  const correctedScore = analysis ? getCorrectedScore(analysis) : null;
+  const targetScore = analysis?.result.fairness_summary.fairness_target ?? 95;
+  const targetDelta = typeof correctedScore === "number" ? Math.max(0, targetScore - correctedScore) : null;
 
-  const targetDelta = typeof correctedScore === "number" ? Math.max(0, 95 - correctedScore) : null;
+  const worstFinding = useMemo(() => {
+    if (!analysis) return null;
+    return [...analysis.result.sensitive_findings].sort((left, right) => left.fairness_score - right.fairness_score)[0] || null;
+  }, [analysis]);
+
+  const correctedWorst = useMemo(() => {
+    if (!analysis) return null;
+    const correctedFindings = getCorrectedSensitiveFindings(analysis);
+    return correctedFindings.length
+      ? [...correctedFindings].sort((left, right) => left.fairness_score - right.fairness_score)[0] || null
+      : null;
+  }, [analysis]);
 
   async function onSubmit() {
     if (!file) {
@@ -82,11 +130,17 @@ export default function DatasetAnalyzer() {
       const nextAnalysis = await uploadAnalysis(form);
       saveAnalysis(nextAnalysis);
       setAnalysis(nextAnalysis);
+      setHistory((current) => [nextAnalysis, ...current.filter((item) => item.id !== nextAnalysis.id)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed.");
     } finally {
       setLoading(false);
     }
+  }
+
+  function inspectAnalysis(item: AnalysisPayload) {
+    setAnalysis(item);
+    saveAnalysis(item);
   }
 
   return (
@@ -102,14 +156,14 @@ export default function DatasetAnalyzer() {
               <h1 className="text-3xl font-bold text-white">Live Feed Analysis Studio</h1>
               <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
                 Dataset upload se lekar corrected fairness output tak poora pipeline cinematic control-room style mein dikh raha hai.
-                Aap sirf file aur domain do, baaki target, prediction, sensitive columns, fairness audit aur correction preview engine handle karega.
+                FairLens target, prediction, sensitive columns, fairness audit, and correction preview ko automatic lane mein process karta hai.
               </p>
             </div>
 
             <div className="grid min-w-[260px] grid-cols-2 gap-3">
               <HeroStat label="Auto-detection" value="ON" />
               <HeroStat label="Artifact mode" value="CSV + PDF" />
-              <HeroStat label="Correction target" value="95+" />
+              <HeroStat label="Archive depth" value={String(history.length)} />
               <HeroStat label="Pipeline state" value={loading ? "LIVE" : "IDLE"} />
             </div>
           </div>
@@ -165,7 +219,7 @@ export default function DatasetAnalyzer() {
             <div className="flex flex-wrap gap-3">
               <Button onClick={onSubmit} disabled={loading} className="bg-emerald-500 font-semibold text-black hover:bg-emerald-400">
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                {loading ? "Running cinematic analysis..." : "Launch fairness analysis"}
+                {loading ? "Running FairLens analysis..." : "Launch FairLens Analysis"}
               </Button>
               <div className="inline-flex items-center gap-2 border border-white/10 bg-black/20 px-4 py-3 text-xs uppercase tracking-[0.25em] text-muted-foreground">
                 <Activity className="h-4 w-4 text-emerald-400" />
@@ -185,10 +239,10 @@ export default function DatasetAnalyzer() {
                         {typeof correctedScore === "number" ? `${correctedScore}%` : "not available yet"}.
                       </p>
                     </div>
-                    <div className="flex gap-3">
+                    <div className="flex flex-wrap gap-3">
                       <Button asChild className="bg-emerald-500 text-black hover:bg-emerald-400">
                         <Link to="/dashboard">
-                          Open dashboard
+                          Open trend dashboard
                           <ArrowRight className="ml-2 h-4 w-4" />
                         </Link>
                       </Button>
@@ -200,14 +254,14 @@ export default function DatasetAnalyzer() {
                 </div>
 
                 <div className="score-target-card p-5">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">95+ target</p>
+                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">{targetScore}+ target</p>
                   <p className="mt-3 text-4xl font-bold text-white">{typeof correctedScore === "number" ? `${correctedScore}%` : "--"}</p>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {typeof correctedScore !== "number"
                       ? "Corrected score unavailable."
-                      : correctedScore >= 95
+                      : correctedScore >= targetScore
                         ? "Target crossed. Corrected output is now in the safe release band."
-                        : `${targetDelta?.toFixed(2)} points more remediation still needed to reach 95+.`}
+                        : `${targetDelta?.toFixed(2)} points more remediation still needed to reach ${targetScore}+.`}
                   </p>
                 </div>
               </div>
@@ -221,9 +275,15 @@ export default function DatasetAnalyzer() {
             </div>
 
             <div className="movie-feed">
-              {liveFeed.map((entry, index) => (
-                <LiveFeedRow key={`${entry.stage}-${entry.timestamp || index}`} entry={entry} active={loading && index === liveIndex} />
-              ))}
+              {liveFeed.length ? (
+                liveFeed.map((entry, index) => (
+                  <LiveFeedRow key={`${entry.stage}-${entry.timestamp || index}`} entry={entry} active={loading && index === liveIndex} />
+                ))
+              ) : (
+                <div className="terminal-card p-5 text-sm text-muted-foreground">
+                  Launch a FairLens analysis to start the live pipeline feed.
+                </div>
+              )}
             </div>
           </section>
         </div>
@@ -236,12 +296,18 @@ export default function DatasetAnalyzer() {
 
           <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="space-y-4">
-              {liveFeed.map((entry, index) => (
-                <LogTimelineRow key={`${entry.stage}-timeline-${entry.timestamp || index}`} entry={entry} />
-              ))}
+              {liveFeed.length ? (
+                liveFeed.map((entry, index) => (
+                  <LogTimelineRow key={`${entry.stage}-timeline-${entry.timestamp || index}`} entry={entry} />
+                ))
+              ) : (
+                <div className="terminal-card p-5 text-sm text-muted-foreground">
+                  The detailed timeline appears here after you launch an audit.
+                </div>
+              )}
             </div>
 
-            <div className="terminal-card p-5 space-y-4">
+            <div className="terminal-card space-y-4 p-5">
               <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">What this run covers</p>
               <Checklist text="CSV/XLS/XLSX upload with auto parsing" />
               <Checklist text="Domain selection or auto domain resolution" />
@@ -249,10 +315,167 @@ export default function DatasetAnalyzer() {
               <Checklist text="Prediction generation when prediction column is missing" />
               <Checklist text="Fairness score, disparate impact, accuracy, and group metrics" />
               <Checklist text="Proxy-risk feature detection and recommendations" />
-              <Checklist text="Correction output shown separately on dashboard" />
+              <Checklist text="Correction output shown directly after the run" />
             </div>
           </div>
         </section>
+
+        {analysis && (
+          <>
+            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+              <DetailScoreCard label="Original fairness" value={`${analysis.result.fairness_summary.overall_fairness_score}%`} icon={BarChart3} tone="default" />
+              <DetailScoreCard label="Corrected fairness" value={typeof correctedScore === "number" ? `${correctedScore}%` : "--"} icon={ShieldCheck} tone="success" />
+              <DetailScoreCard label="Target gap" value={typeof targetDelta === "number" ? targetDelta.toFixed(2) : "--"} icon={Target} tone="warning" />
+              <DetailScoreCard label="Reports stored" value={String(history.length || 1)} icon={History} tone="default" />
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+              <section className="command-panel space-y-6 p-8">
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                  <h2 className="text-xl font-semibold text-white">Correction Outcome</h2>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <OutcomeCard
+                    title="Before correction"
+                    score={analysis.result.fairness_summary.overall_fairness_score}
+                    risk={analysis.result.fairness_summary.risk_level}
+                    note="Raw audit result before remediation preview."
+                  />
+                  <OutcomeCard
+                    title="After correction"
+                    score={typeof correctedScore === "number" ? correctedScore : analysis.result.fairness_summary.overall_fairness_score}
+                    risk={analysis.result.artifacts?.corrected_fairness_summary?.risk_level || analysis.result.fairness_summary.risk_level}
+                    note={
+                      typeof correctedScore === "number" && correctedScore >= targetScore
+                        ? `${targetScore}+ target crossed in corrected output.`
+                        : "Corrected output improved the dataset, but the safe-release threshold still depends on real bias severity."
+                    }
+                  />
+                </div>
+
+                <div className="terminal-card p-5">
+                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Executive readout</p>
+                  <p className="mt-3 text-sm leading-7 text-muted-foreground">{analysis.result.explanation.executive_summary}</p>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <SignalPanel
+                    title="Detected setup"
+                    items={[
+                      `Domain: ${analysis.result.metadata.domain}`,
+                      `Target: ${analysis.result.metadata.target_column ?? "auto-generated"}`,
+                      `Prediction: ${analysis.result.metadata.prediction_column ?? "auto-generated"}`,
+                      `Sensitive columns: ${analysis.result.metadata.sensitive_columns.join(", ")}`,
+                    ]}
+                  />
+                  <SignalPanel
+                    title="Release view"
+                    items={[
+                      `Rows analyzed: ${analysis.result.metadata.rows}`,
+                      `Risk level: ${analysis.result.fairness_summary.risk_level}`,
+                      `Worst original slice: ${worstFinding?.sensitive_column ?? "none"}`,
+                      `Worst corrected slice: ${correctedWorst?.sensitive_column ?? "not generated"}`,
+                    ]}
+                  />
+                </div>
+              </section>
+
+              <section className="command-panel space-y-6 p-8">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="h-5 w-5 text-emerald-400" />
+                  <h2 className="text-xl font-semibold text-white">Risk Focus</h2>
+                </div>
+                <FindingCard title="Original high-risk finding" finding={worstFinding} />
+                <FindingCard title="Corrected high-risk finding" finding={correctedWorst} />
+              </section>
+            </div>
+
+            <section className="command-panel p-8">
+              <div className="mb-5 flex items-center gap-3">
+                <History className="h-5 w-5 text-emerald-400" />
+                <h2 className="text-xl font-semibold text-white">Recent Analysis Archive</h2>
+              </div>
+
+              <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
+                <div className="space-y-3">
+                  {history.map((item) => {
+                    const itemCorrected = getCorrectedScore(item) ?? item.result.fairness_summary.overall_fairness_score;
+
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => inspectAnalysis(item)}
+                        className={`w-full border p-4 text-left transition ${
+                          item.id === analysis.id
+                            ? "border-emerald-500/40 bg-emerald-500/10"
+                            : "border-white/10 bg-black/20 hover:border-emerald-500/30 hover:bg-white/5"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="font-medium text-white">{item.input.fileName}</p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                              {item.result.metadata.domain} | {formatRelativeTime(item.createdAt)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm text-emerald-300">{formatMetric(itemCorrected)}%</p>
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">corrected</p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="space-y-4">
+                  <div className="terminal-card p-5">
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Artifact access</p>
+                    <div className="mt-4 grid gap-3">
+                      <a
+                        href={getPdfReportUrl(analysis.id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-between border border-white/10 bg-black/20 px-4 py-3 text-sm text-white hover:bg-white/5"
+                      >
+                        <span className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-emerald-400" />
+                          Audit PDF
+                        </span>
+                        <Download className="h-4 w-4 text-muted-foreground" />
+                      </a>
+                      <a
+                        href={getCorrectedCsvUrl(analysis.id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-between border border-white/10 bg-black/20 px-4 py-3 text-sm text-white hover:bg-white/5"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Download className="h-4 w-4 text-emerald-400" />
+                          Corrected CSV
+                        </span>
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="terminal-card p-5">
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Plain language summary</p>
+                    <div className="mt-4 space-y-3">
+                      {analysis.result.explanation.plain_language.map((line) => (
+                        <p key={line} className="text-sm text-muted-foreground">
+                          {line}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
       </div>
     </Layout>
   );
@@ -313,6 +536,92 @@ function Checklist({ text }: { text: string }) {
     <div className="flex items-center gap-3 text-sm text-muted-foreground">
       <CheckCircle2 className="h-4 w-4 text-emerald-400" />
       <span>{text}</span>
+    </div>
+  );
+}
+
+function DetailScoreCard({
+  label,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  icon: typeof BarChart3;
+  tone: "default" | "success" | "warning";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-emerald-500/30 bg-emerald-500/10"
+      : tone === "warning"
+        ? "border-amber-500/30 bg-amber-500/10"
+        : "border-white/10 bg-black/20";
+
+  return (
+    <div className={`terminal-card p-5 ${toneClass}`}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-muted-foreground">{label}</p>
+        <Icon className="h-4 w-4 text-emerald-400" />
+      </div>
+      <p className="mt-3 text-4xl font-bold text-white">{value}</p>
+    </div>
+  );
+}
+
+function OutcomeCard({ title, score, risk, note }: { title: string; score: number; risk: string; note: string }) {
+  return (
+    <div className="score-target-card p-5">
+      <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">{title}</p>
+      <p className="mt-3 text-4xl font-bold text-white">{formatMetric(score)}%</p>
+      <p className="mt-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">{risk}</p>
+      <p className="mt-3 text-sm text-muted-foreground">{note}</p>
+    </div>
+  );
+}
+
+function SignalPanel({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="terminal-card p-5">
+      <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">{title}</p>
+      <div className="mt-4 space-y-3">
+        {items.map((item) => (
+          <p key={item} className="text-sm text-muted-foreground">
+            {item}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FindingCard({ title, finding }: { title: string; finding: SensitiveFinding | null }) {
+  if (!finding) {
+    return (
+      <div className="terminal-card p-5">
+        <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">{title}</p>
+        <p className="mt-3 text-sm text-muted-foreground">No finding available.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="terminal-card p-5">
+      <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">{title}</p>
+      <p className="mt-3 text-2xl font-semibold text-white">{finding.sensitive_column}</p>
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-muted-foreground">
+        <p>Fairness: {formatMetric(finding.fairness_score)}%</p>
+        <p>Risk: {finding.risk_level}</p>
+        <p>DI: {finding.disparate_impact}</p>
+        <p>DP gap: {finding.demographic_parity_difference}</p>
+      </div>
+      <div className="mt-4 space-y-2">
+        {finding.notes.map((note) => (
+          <p key={note} className="text-sm text-muted-foreground">
+            - {note}
+          </p>
+        ))}
+      </div>
     </div>
   );
 }

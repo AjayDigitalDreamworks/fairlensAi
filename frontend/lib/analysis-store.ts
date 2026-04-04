@@ -27,6 +27,18 @@ export function saveAnalysis(analysis: AnalysisPayload) {
   window.localStorage.setItem(LATEST_KEY, analysis.id);
 }
 
+export function removeAnalysis(id: string) {
+  if (typeof window === "undefined") return;
+  const next = readHistory().filter((item) => item.id !== id);
+  writeHistory(next);
+
+  const latestId = window.localStorage.getItem(LATEST_KEY);
+  if (latestId === id) {
+    if (next[0]) window.localStorage.setItem(LATEST_KEY, next[0].id);
+    else window.localStorage.removeItem(LATEST_KEY);
+  }
+}
+
 export function loadAnalyses(): AnalysisPayload[] {
   return readHistory();
 }

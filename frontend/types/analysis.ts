@@ -11,6 +11,8 @@ export type GroupMetric = {
 export type SensitiveFinding = {
   sensitive_column: string;
   baseline_group?: string;
+  component_sensitive_columns?: string[];
+  is_intersectional?: boolean;
   fairness_score: number;
   risk_level: string;
   demographic_parity_difference: number;
@@ -95,6 +97,20 @@ export type AnalysisPayload = {
       target_column?: string | null;
       prediction_column?: string | null;
       sensitive_columns: string[];
+      domain_auto_detected?: boolean;
+      target_auto_detected?: boolean;
+      prediction_auto_generated?: boolean;
+      sensitive_auto_detected?: boolean;
+      large_dataset_mode?: boolean;
+      training_rows_used?: number;
+      proxy_scan_rows_used?: number;
+      correction_method?: string;
+      precorrected_upload?: boolean;
+      surrogate_model?: string;
+      spark_acceleration_active?: boolean;
+      reweighing_applied?: boolean;
+      intersectional_analysis_enabled?: boolean;
+      intersectional_findings_count?: number;
       detection?: {
         target_origin?: string;
         prediction_origin?: string;
@@ -106,9 +122,19 @@ export type AnalysisPayload = {
       risk_level: string;
       overall_accuracy?: number;
       corrected_fairness_score?: number;
+      corrected_accuracy?: number;
       disparate_impact?: number;
+      corrected_disparate_impact?: number;
+      intersectional_fairness_score?: number | null;
+      intersectional_corrected_fairness_score?: number | null;
+      fairness_target?: number;
+      fairness_target_met?: boolean;
+      fairness_target_gap?: number;
     };
     sensitive_findings: SensitiveFinding[];
+    intersectional_findings?: SensitiveFinding[];
+    corrected_sensitive_findings?: SensitiveFinding[];
+    corrected_intersectional_findings?: SensitiveFinding[];
     root_causes: RootCause[];
     recommendations: Recommendation[];
     explanation: {

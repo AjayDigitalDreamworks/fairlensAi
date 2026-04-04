@@ -1,5 +1,7 @@
 import fs from 'fs';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { env } from '../config/env.js';
 import { AnalysisRepository } from '../models/analysisRepository.js';
 import { analyzeFile as callAnalyzeFile, mitigationPreview as callMitigationPreview } from './pythonService.js';
 import { persistArtifacts } from '../utils/reportArtifacts.js';
@@ -85,6 +87,18 @@ export function getAnalysis(id) {
   return repo.getById(id);
 }
 
+export function deleteAnalysis(id) {
+  const analysis = repo.deleteById(id);
+  if (!analysis) {
+    const error = new Error('Analysis not found');
+    error.status = 404;
+    throw error;
+  }
+
+  removeArtifactsForAnalysis(id);
+  return analysis;
+}
+
 export function getAnalysisArtifact(id, type) {
   const analysis = repo.getById(id);
   if (!analysis) {
@@ -143,5 +157,18 @@ function normalizeSensitiveColumns(value) {
       .split(',')
       .map((v) => v.trim())
       .filter(Boolean);
+  }
+}
+
+function removeArtifactsForAnalysis(id) {
+  const artifactsRoot = path.resolve(env.dataDir, 'artifacts');
+  const targetDir = path.resolve(artifactsRoot, id);
+
+  if (!targetDir.startsWith(`${artifactsRoot}${path.sep}`)) {
+    return;
+  }
+
+  if (fs.existsSync(targetDir)) {
+    fs.rmSync(targetDir, { recursive: true, force: true });
   }
 }

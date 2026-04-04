@@ -17,4 +17,13 @@ export class AnalysisRepository {
     writeDb(db);
     return analysis;
   }
+
+  deleteById(id) {
+    const db = readDb();
+    const existing = db.analyses.find((item) => item.id === id) || null;
+    if (!existing) return null;
+    db.analyses = db.analyses.filter((item) => item.id !== id);
+    writeDb(db);
+    return existing;
+  }
 }

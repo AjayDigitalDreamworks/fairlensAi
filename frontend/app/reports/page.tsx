@@ -1,219 +1,677 @@
 "use client";
 
 import Layout from "@/components/Layout";
-import { getCorrectedCsvUrl, getPdfReportUrl, listAnalyses } from "@/lib/api";
-import { loadLatestAnalysis, saveAnalysis } from "@/lib/analysis-store";
+import { Button } from "@/components/ui/button";
+import {
+  deleteAnalysis as deleteAnalysisRequest,
+  getCorrectedCsvUrl,
+  getPdfReportUrl,
+  listAnalyses,
+} from "@/lib/api";
+import {
+  loadAnalysisHistory,
+  loadLatestAnalysis,
+  removeAnalysis as removeStoredAnalysis,
+  saveAnalysis,
+} from "@/lib/analysis-store";
 import { AnalysisPayload } from "@/types/analysis";
-import { FileSearch, Lightbulb, ScanSearch, Sparkles, TerminalSquare } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronRight,
+  ClipboardList,
+  Download,
+  Eye,
+  FileText,
+  Filter,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Trash,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+type FilterMode = "all" | "high-risk" | "target-met" | "mitigated";
+
 export default function ReportsPage() {
-  const [analysis, setAnalysis] = useState<AnalysisPayload | null>(null);
-  const [history, setHistory] = useState<AnalysisPayload[]>([]);
+  const [analyses, setAnalyses] = useState<AnalysisPayload[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyIds, setBusyIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => {
-    const cached = loadLatestAnalysis();
-    setAnalysis(cached);
-    listAnalyses()
-      .then((items) => {
-        setHistory(items);
-        if (!cached && items[0]) {
-          setAnalysis(items[0]);
-          saveAnalysis(items[0]);
-        }
-      })
-      .catch(() => undefined);
+    let mounted = true;
+
+    async function hydrate() {
+      const cached = loadLatestAnalysis();
+      const cachedHistory = loadAnalysisHistory();
+
+      try {
+        const items = await listAnalyses();
+        if (!mounted) return;
+
+        const next = items.length ? items : cachedHistory;
+        const preferred = (cached ? next.find((item) => item.id === cached.id) : null) ?? next[0] ?? null;
+
+        setAnalyses(next);
+        setActiveId(preferred?.id ?? null);
+        setError(items.length ? null : cachedHistory.length ? "Live archive is empty, showing cached reports." : null);
+
+        if (preferred) saveAnalysis(preferred);
+      } catch {
+        if (!mounted) return;
+        setAnalyses(cachedHistory);
+        setActiveId(cached?.id ?? cachedHistory[0]?.id ?? null);
+        setError(
+          cachedHistory.length
+            ? "Live archive is unavailable, showing cached report history."
+            : "No report archive is available yet. Run an audit from the Analyzer page first.",
+        );
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    hydrate();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const correctedScore = useMemo(() => {
-    if (!analysis) return null;
-    return (
-      analysis.result.artifacts?.corrected_fairness_summary?.overall_fairness_score ??
-      analysis.result.fairness_summary.corrected_fairness_score ??
-      null
+  useEffect(() => {
+    setSelectedIds((current) => current.filter((id) => analyses.some((item) => item.id === id)));
+
+    if (!analyses.length) {
+      setActiveId(null);
+      return;
+    }
+
+    if (!activeId || !analyses.some((item) => item.id === activeId)) {
+      setActiveId(analyses[0].id);
+    }
+  }, [activeId, analyses]);
+
+  const activeAnalysis = useMemo(
+    () => analyses.find((item) => item.id === activeId) ?? analyses[0] ?? null,
+    [activeId, analyses],
+  );
+
+  const filteredReports = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
+    return analyses.filter((report) => {
+      const haystack = [
+        report.input.fileName,
+        report.result.metadata.domain,
+        report.id,
+        report.result.metadata.sensitive_columns.join(" "),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      if (query && !haystack.includes(query)) return false;
+      if (filterMode === "high-risk") return report.result.fairness_summary.risk_level === "high";
+      if (filterMode === "target-met") return isTargetMet(report);
+      if (filterMode === "mitigated") return Boolean(report.mitigationPreview);
+      return true;
+    });
+  }, [analyses, filterMode, searchTerm]);
+
+  const allVisibleSelected = filteredReports.length > 0 && filteredReports.every((report) => selectedIds.includes(report.id));
+  const selectedReports = analyses.filter((report) => selectedIds.includes(report.id));
+
+  const reportStats = useMemo(() => {
+    const now = new Date();
+    const monthlyCount = analyses.filter((report) => {
+      const created = new Date(report.createdAt);
+      return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
+    }).length;
+
+    const averageBias = analyses.length
+      ? analyses.reduce((sum, report) => sum + getBiasSignal(report), 0) / analyses.length
+      : 0;
+
+    const averageCompliance = analyses.length
+      ? analyses.reduce((sum, report) => sum + (getCorrectedScore(report) ?? report.result.fairness_summary.overall_fairness_score), 0) / analyses.length
+      : 0;
+
+    return [
+      { label: "Total Reports Cache", value: String(analyses.length).padStart(2, "0") },
+      { label: "Active Cycles (Monthly)", value: String(monthlyCount).padStart(2, "0") },
+      { label: "Avg Bias Index", value: `${formatMetric(averageBias)}%` },
+      { label: "Compliance Fidelity", value: `${formatMetric(averageCompliance)}%` },
+    ];
+  }, [analyses]);
+
+  const activeSummary = activeAnalysis?.result.explanation.executive_summary ?? "Select an audit record to inspect its report details.";
+  const anomalyFindings = activeAnalysis ? buildAnomalyFindings(activeAnalysis) : [];
+  const correctiveProtocols = activeAnalysis ? buildCorrectiveProtocols(activeAnalysis) : [];
+
+  function inspectReport(report: AnalysisPayload) {
+    setActiveId(report.id);
+    saveAnalysis(report);
+  }
+
+  function toggleReportSelection(reportId: string) {
+    setSelectedIds((current) =>
+      current.includes(reportId) ? current.filter((id) => id !== reportId) : [...current, reportId],
     );
-  }, [analysis]);
+  }
+
+  function toggleVisibleSelection() {
+    if (!filteredReports.length) return;
+
+    if (allVisibleSelected) {
+      const visibleIds = new Set(filteredReports.map((report) => report.id));
+      setSelectedIds((current) => current.filter((id) => !visibleIds.has(id)));
+      return;
+    }
+
+    const next = new Set(selectedIds);
+    filteredReports.forEach((report) => next.add(report.id));
+    setSelectedIds(Array.from(next));
+  }
+
+  async function handleDelete(ids: string[]) {
+    if (!ids.length) return;
+    if (!window.confirm(ids.length === 1 ? "Delete this audit report from the archive?" : `Delete ${ids.length} audit reports from the archive?`)) {
+      return;
+    }
+
+    setError(null);
+    setBusyIds((current) => Array.from(new Set([...current, ...ids])));
+    if (ids.length > 1) setBulkDeleting(true);
+
+    try {
+      await Promise.all(ids.map((id) => deleteAnalysisRequest(id)));
+      setAnalyses((current) => {
+        const remaining = current.filter((report) => !ids.includes(report.id));
+        const nextActiveId = activeId && ids.includes(activeId) ? remaining[0]?.id ?? null : activeId;
+        setActiveId(nextActiveId);
+        if (nextActiveId) {
+          const nextActive = remaining.find((report) => report.id === nextActiveId) ?? remaining[0];
+          if (nextActive) saveAnalysis(nextActive);
+        }
+        return remaining;
+      });
+      ids.forEach((id) => removeStoredAnalysis(id));
+      setSelectedIds((current) => current.filter((id) => !ids.includes(id)));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete the selected archive entries.");
+    } finally {
+      setBusyIds((current) => current.filter((id) => !ids.includes(id)));
+      setBulkDeleting(false);
+    }
+  }
+
+  function handleBulkDownload() {
+    const targets = selectedReports.length ? selectedReports : filteredReports;
+    targets.forEach((report) => triggerBrowserDownload(getPdfReportUrl(report.id)));
+  }
+
+  function handleContextExport() {
+    const targets = selectedReports.length ? selectedReports : filteredReports;
+    if (!targets.length) return;
+
+    const header = [
+      "report_id",
+      "file_name",
+      "domain",
+      "created_at",
+      "protocol_type",
+      "risk_level",
+      "bias_signal",
+      "original_fairness",
+      "corrected_fairness",
+      "rows",
+      "target_met",
+    ];
+
+    const lines = targets.map((report) => [
+      report.id,
+      report.input.fileName,
+      report.result.metadata.domain,
+      report.createdAt,
+      getProtocolType(report),
+      report.result.fairness_summary.risk_level,
+      getBiasSignal(report).toFixed(2),
+      report.result.fairness_summary.overall_fairness_score.toFixed(2),
+      String(getCorrectedScore(report) ?? ""),
+      String(report.result.metadata.rows),
+      isTargetMet(report) ? "yes" : "no",
+    ]);
+
+    downloadBlob(
+      [header, ...lines].map((row) => row.map(csvEscape).join(",")).join("\n"),
+      `fairai-report-context-${new Date().toISOString().slice(0, 10)}.csv`,
+      "text/csv;charset=utf-8",
+    );
+  }
 
   return (
     <Layout>
-      <div className="space-y-8 pb-12">
-        <section className="command-panel p-8">
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
-              <FileSearch className="h-3.5 w-3.5" />
-              Report Archive
+      <div className="relative space-y-8 overflow-hidden pb-12">
+        <div className="pointer-events-none absolute right-0 top-0 h-96 w-96 bg-emerald-500/5 blur-[120px]" />
+
+        <div className="card-glow relative overflow-hidden p-8">
+          <div className="absolute left-0 top-0 h-full w-1 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]" />
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div>
+              <h1 className="mb-2 font-sans text-3xl font-bold tracking-tight text-white">Audit History & Reports</h1>
+              <p className="text-xs font-mono uppercase tracking-[0.3em] text-muted-foreground opacity-60">
+                Access, download, and manage structural audit archives.
+              </p>
             </div>
-            <h1 className="text-3xl font-bold text-white">Audit Report Theater</h1>
-            <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
-              Yeh page poore report flow ko structured form mein dikhata hai: history, explanation, root-cause evidence,
-              recommendations, explainability, and correction outcome.
-            </p>
+
+            {activeAnalysis && !loading && (
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  className="h-auto rounded-none bg-emerald-500 px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-black hover:bg-emerald-400"
+                  onClick={() => triggerBrowserDownload(getPdfReportUrl(activeAnalysis.id))}
+                >
+                  <Download className="mr-3 h-4 w-4" />
+                  Audit PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-auto rounded-none border-white/5 bg-white/5 px-6 py-3 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white/10"
+                  onClick={() => triggerBrowserDownload(getCorrectedCsvUrl(activeAnalysis.id))}
+                >
+                  <FileText className="mr-3 h-4 w-4" />
+                  Corrected CSV
+                </Button>
+              </div>
+            )}
           </div>
-        </section>
+        </div>
 
-        {!analysis ? (
-          <div className="command-panel p-8 text-muted-foreground">No report available.</div>
-        ) : (
-          <>
-            <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-              <section className="command-panel p-8 space-y-4">
-                <h2 className="text-xl font-semibold text-white">Report history</h2>
-                <div className="space-y-3">
-                  {history.map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setAnalysis(item);
-                        saveAnalysis(item);
-                      }}
-                      className={`w-full border p-4 text-left transition ${
-                        item.id === analysis.id
-                          ? "border-emerald-500/40 bg-emerald-500/10"
-                          : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/5"
-                      }`}
-                    >
-                      <p className="font-medium text-white">{item.input.fileName}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                        {item.result.metadata.domain} | {new Date(item.createdAt).toLocaleString()}
-                      </p>
-                      <div className="mt-3 flex items-center justify-between gap-3 text-sm">
-                        <span className="text-muted-foreground">Original {item.result.fairness_summary.overall_fairness_score}%</span>
-                        <span className="text-emerald-300">
-                          Corrected{" "}
-                          {item.result.artifacts?.corrected_fairness_summary?.overall_fairness_score ??
-                            item.result.fairness_summary.corrected_fairness_score ??
-                            item.result.fairness_summary.overall_fairness_score}
-                          %
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="command-panel p-8 space-y-6">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="score-target-card p-5">
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Original fairness</p>
-                    <p className="mt-3 text-4xl font-bold text-white">{analysis.result.fairness_summary.overall_fairness_score}%</p>
-                  </div>
-                  <div className="score-target-card p-5">
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Corrected fairness</p>
-                    <p className="mt-3 text-4xl font-bold text-white">{correctedScore ?? "--"}%</p>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {typeof correctedScore === "number" && correctedScore >= 95
-                        ? "95+ target reached in corrected output."
-                        : "Correction result shown honestly from the dataset analysis."}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <a href={getPdfReportUrl(analysis.id)} target="_blank" rel="noreferrer" className="terminal-card p-4 text-sm text-white hover:bg-white/5">
-                    Download audit PDF
-                  </a>
-                  <a href={getCorrectedCsvUrl(analysis.id)} target="_blank" rel="noreferrer" className="terminal-card p-4 text-sm text-white hover:bg-white/5">
-                    Download corrected CSV
-                  </a>
-                </div>
-
-                <div className="terminal-card p-5">
-                  <div className="flex items-center gap-3">
-                    <TerminalSquare className="h-4 w-4 text-emerald-400" />
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Executive explanation</p>
-                  </div>
-                  <p className="mt-4 text-sm leading-7 text-muted-foreground">{analysis.result.explanation.executive_summary}</p>
-                  <div className="mt-4 space-y-2">
-                    {analysis.result.explanation.plain_language.map((line) => (
-                      <p key={line} className="text-sm text-muted-foreground">- {line}</p>
-                    ))}
-                  </div>
-                </div>
-              </section>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-3">
-              <section className="command-panel p-8 space-y-4">
-                <div className="flex items-center gap-3">
-                  <ScanSearch className="h-5 w-5 text-emerald-400" />
-                  <h2 className="text-xl font-semibold text-white">Root causes</h2>
-                </div>
-                {analysis.result.root_causes.map((cause, index) => (
-                  <div key={`${cause.type}-${index}`} className="terminal-card p-4">
-                    <p className="font-medium text-white">{cause.type.replace(/_/g, " ")}</p>
-                    <p className="mt-2 text-sm text-muted-foreground">{cause.details}</p>
-                  </div>
-                ))}
-              </section>
-
-              <section className="command-panel p-8 space-y-4 xl:col-span-2">
-                <div className="flex items-center gap-3">
-                  <Lightbulb className="h-5 w-5 text-emerald-400" />
-                  <h2 className="text-xl font-semibold text-white">Correction recommendations</h2>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {analysis.result.recommendations.map((rec) => (
-                    <div key={rec.title} className="terminal-card p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <p className="font-medium text-white">{rec.title}</p>
-                        <span className="text-[10px] uppercase tracking-[0.2em] text-emerald-300">{rec.priority}</span>
-                      </div>
-                      <p className="mt-3 text-sm text-muted-foreground">{rec.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-              <section className="command-panel p-8 space-y-4">
-                <div className="flex items-center gap-3">
-                  <Sparkles className="h-5 w-5 text-emerald-400" />
-                  <h2 className="text-xl font-semibold text-white">Explainability</h2>
-                </div>
-                {analysis.result.explainability ? (
-                  <>
-                    {analysis.result.explainability.note && (
-                      <p className="text-sm text-muted-foreground">{analysis.result.explainability.note}</p>
-                    )}
-                    <div className="space-y-3">
-                      {(analysis.result.explainability.shap_style_summary ||
-                        analysis.result.explainability.top_features ||
-                        []).map((feature) => (
-                        <div key={feature.feature} className="terminal-card p-4">
-                          <p className="font-medium text-white">{feature.feature}</p>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {"summary" in feature && feature.summary
-                              ? feature.summary
-                              : `Signal ${feature.score ?? feature.weight ?? 0} ${feature.reason ?? feature.direction ?? ""}`}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-muted-foreground">No explainability output available.</p>
-                )}
-              </section>
-
-              <section className="command-panel p-8 space-y-4">
-                <h2 className="text-xl font-semibold text-white">Analysis log</h2>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {(analysis.result.analysis_log ?? []).map((entry, index) => (
-                    <div key={`${entry.stage}-${entry.timestamp || index}`} className="terminal-card p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium text-white">{entry.title || entry.stage}</p>
-                        <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">{entry.status || "logged"}</span>
-                      </div>
-                      <p className="mt-2 text-sm text-muted-foreground">{entry.detail || entry.message}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </div>
-          </>
+        {error && (
+          <div className="card-glow flex items-start gap-3 border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-100">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
+            <p>{error}</p>
+          </div>
         )}
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {reportStats.map((stat) => (
+            <div key={stat.label} className="card-glow space-y-1 border-white/5 p-6 transition-all hover:border-emerald-500/30">
+              <p className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">{stat.label}</p>
+              <p className="font-mono text-3xl font-black tracking-tight text-white drop-shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+                {stat.value}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex flex-col gap-4 md:flex-row">
+            <div className="group relative flex-1">
+              <Search className="absolute left-4 top-3.5 h-4 w-4 text-emerald-500 transition-colors group-focus-within:text-emerald-400" />
+              <input
+                type="text"
+                placeholder="PROMPT: Search report identification strings..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className="w-full rounded-none border border-white/5 bg-black/40 py-3 pl-12 pr-4 font-mono text-xs uppercase tracking-widest text-white placeholder:text-muted-foreground focus:border-emerald-500/50 focus:outline-none"
+              />
+            </div>
+
+            <div className="relative min-w-[220px]">
+              <Filter className="pointer-events-none absolute left-4 top-3.5 h-4 w-4 text-emerald-500" />
+              <select
+                value={filterMode}
+                onChange={(event) => setFilterMode(event.target.value as FilterMode)}
+                className="h-full w-full appearance-none rounded-none border border-white/5 bg-white/2 py-3 pl-12 pr-10 font-mono text-[10px] uppercase tracking-widest text-white hover:border-emerald-500/30 focus:border-emerald-500/50 focus:outline-none"
+              >
+                <option value="all" className="bg-slate-950 text-white">All Reports</option>
+                <option value="high-risk" className="bg-slate-950 text-white">High Risk</option>
+                <option value="target-met" className="bg-slate-950 text-white">Target Met</option>
+                <option value="mitigated" className="bg-slate-950 text-white">Mitigated</option>
+              </select>
+            </div>
+          </div>
+
+          <p className="text-[10px] font-mono uppercase tracking-[0.24em] text-muted-foreground">
+            Showing {filteredReports.length} of {analyses.length} archived audits
+            {selectedReports.length ? ` | ${selectedReports.length} selected` : ""}
+          </p>
+        </div>
+
+        <div className="card-glow relative overflow-hidden border-emerald-500/20">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="border-b border-white/5 bg-white/2">
+                  <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleVisibleSelection}
+                        className="h-4 w-4 cursor-pointer accent-emerald-500"
+                        aria-label="Select all visible reports"
+                      />
+                      <span>Identification String</span>
+                    </div>
+                  </th>
+                  <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Protocol Type</th>
+                  <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Timestamp</th>
+                  <th className="px-6 py-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Bias Signal</th>
+                  <th className="px-6 py-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Density</th>
+                  <th className="px-6 py-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Operations</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-sm text-muted-foreground">Loading report archive...</td>
+                  </tr>
+                ) : filteredReports.length ? (
+                  filteredReports.map((report) => {
+                    const isActive = report.id === activeAnalysis?.id;
+                    const isBusy = busyIds.includes(report.id);
+                    const biasSignal = getBiasSignal(report);
+
+                    return (
+                      <tr
+                        key={report.id}
+                        onClick={() => inspectReport(report)}
+                        className={`group cursor-pointer text-[11px] transition-all ${isActive ? "bg-emerald-500/8" : "hover:bg-emerald-500/5"}`}
+                      >
+                        <td className="px-6 py-5">
+                          <div className="flex items-start gap-4">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(report.id)}
+                              onChange={() => toggleReportSelection(report.id)}
+                              onClick={(event) => event.stopPropagation()}
+                              className="mt-1 h-4 w-4 cursor-pointer accent-emerald-500"
+                              aria-label={`Select ${report.input.fileName}`}
+                            />
+                            <div className="space-y-1">
+                              <p className="font-bold uppercase tracking-wide text-white transition-colors group-hover:text-emerald-400">
+                                {report.input.fileName.replace(/\.[^.]+$/, "")}
+                              </p>
+                              <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground">
+                                {report.result.metadata.domain} | {report.id.slice(0, 8)}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <span className="border border-white/5 bg-white/5 px-3 py-1 text-[9px] font-black uppercase text-muted-foreground transition-colors group-hover:text-white">
+                            {getProtocolType(report).toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="px-6 py-5 font-mono tracking-tighter text-muted-foreground opacity-70">
+                          {formatRelativeTimestamp(report.createdAt)}
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="flex justify-center">
+                            <span className={`border px-3 py-1.5 font-mono text-[10px] font-black ${getBiasColor(biasSignal)}`}>
+                              {formatMetric(biasSignal)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-5 text-center font-mono text-muted-foreground opacity-70">
+                          {formatDensity(report.result.metadata.rows)}
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="flex items-center justify-center gap-3">
+                            <button
+                              className="rounded-none border border-white/5 bg-white/2 p-2 text-emerald-400 transition hover:bg-emerald-500/10 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                inspectReport(report);
+                              }}
+                              disabled={isBusy || bulkDeleting}
+                              aria-label={`View ${report.input.fileName}`}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                            <button
+                              className="rounded-none border border-white/5 bg-white/2 p-2 text-teal-400 transition hover:bg-teal-500/10 hover:text-teal-300 disabled:cursor-not-allowed disabled:opacity-40"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                triggerBrowserDownload(getPdfReportUrl(report.id));
+                              }}
+                              disabled={isBusy || bulkDeleting}
+                              aria-label={`Download report for ${report.input.fileName}`}
+                            >
+                              <Download className="h-4 w-4" />
+                            </button>
+                            <button
+                              className="rounded-none border border-white/5 bg-white/2 p-2 text-muted-foreground transition hover:bg-red-500/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleDelete([report.id]);
+                              }}
+                              disabled={isBusy || bulkDeleting}
+                              aria-label={`Delete ${report.input.fileName}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-sm text-muted-foreground">
+                      No audit reports matched the current search and filter matrix.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="card-glow relative overflow-hidden border-teal-500/20 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 p-10">
+          <div className="pointer-events-none absolute right-0 top-0 h-64 w-64 bg-emerald-500/5 blur-[100px]" />
+          <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+            <h2 className="flex items-center gap-3 text-sm font-bold uppercase tracking-[0.3em] text-white">
+              <ClipboardList className="h-5 w-5 text-emerald-400" />
+              Executive Log Intelligence Preview
+            </h2>
+            {activeAnalysis && (
+              <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono uppercase tracking-[0.24em] text-muted-foreground">
+                <span>Original {formatMetric(activeAnalysis.result.fairness_summary.overall_fairness_score)}%</span>
+                <span className="text-emerald-300">
+                  Corrected {formatMetric(getCorrectedScore(activeAnalysis) ?? activeAnalysis.result.fairness_summary.overall_fairness_score)}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-6 font-mono text-[11px] leading-relaxed md:grid-cols-3">
+            <div className="space-y-4 border border-white/5 bg-black/40 p-6 transition-all hover:border-emerald-500/20">
+              <h3 className="flex items-center gap-2 font-bold uppercase tracking-widest text-white">
+                <FileText className="h-3 w-3 text-emerald-500" />
+                Operational Executive Summary
+              </h3>
+              <p className="text-muted-foreground opacity-80">{activeSummary}</p>
+            </div>
+
+            <div className="space-y-4 border border-white/5 bg-black/40 p-6 transition-all hover:border-emerald-500/20">
+              <h3 className="flex items-center gap-2 font-bold uppercase tracking-widest text-white">
+                <ShieldCheck className="h-3 w-3 text-emerald-500" />
+                Neural Anomaly Findings
+              </h3>
+              <ul className="space-y-3">
+                {anomalyFindings.length ? (
+                  anomalyFindings.map((item) => (
+                    <li key={item} className="flex items-start gap-3 text-muted-foreground opacity-80">
+                      <ChevronRight className="mt-0.5 h-3 w-3 flex-shrink-0 text-emerald-500" />
+                      {item}
+                    </li>
+                  ))
+                ) : (
+                  <li className="text-muted-foreground opacity-80">No anomaly findings are available for this report.</li>
+                )}
+              </ul>
+            </div>
+
+            <div className="space-y-4 border border-white/5 bg-black/40 p-6 transition-all hover:border-emerald-500/20">
+              <h3 className="flex items-center gap-2 font-bold uppercase tracking-widest text-white">
+                <RefreshCw className="h-3 w-3 text-emerald-500" />
+                Corrective Protocols
+              </h3>
+              <ul className="space-y-3">
+                {correctiveProtocols.length ? (
+                  correctiveProtocols.map((item) => (
+                    <li key={item} className="flex items-start gap-3 text-muted-foreground opacity-80">
+                      <ChevronRight className="mt-0.5 h-3 w-3 flex-shrink-0 text-teal-500" />
+                      {item}
+                    </li>
+                  ))
+                ) : (
+                  <li className="text-muted-foreground opacity-80">No corrective protocols are available for this report.</li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-4">
+          <Button
+            className="h-auto rounded-none bg-emerald-500 px-8 py-8 text-[10px] font-bold uppercase tracking-widest text-black shadow-[0_0_20px_rgba(16,185,129,0.2)] hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={handleBulkDownload}
+            disabled={!filteredReports.length}
+          >
+            <Download className="mr-3 h-4 w-4" />
+            Download Global Archive
+          </Button>
+          <Button
+            variant="outline"
+            className="h-auto rounded-none border-white/5 bg-white/5 px-8 py-8 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={handleContextExport}
+            disabled={!filteredReports.length}
+          >
+            <FileText className="mr-3 h-4 w-4" />
+            Export Context (CSV)
+          </Button>
+          <Button
+            variant="outline"
+            className="h-auto rounded-none border border-red-500/10 px-8 py-8 font-mono text-[10px] uppercase tracking-widest text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => void handleDelete(selectedReports.map((report) => report.id))}
+            disabled={!selectedReports.length || bulkDeleting}
+          >
+            <Trash className="mr-3 h-4 w-4" />
+            {bulkDeleting ? "Terminating Archives..." : `Terminate Selected Archives${selectedReports.length ? ` (${selectedReports.length})` : ""}`}
+          </Button>
+        </div>
       </div>
     </Layout>
   );
+}
+
+function getCorrectedScore(report: AnalysisPayload) {
+  return report.result.artifacts?.corrected_fairness_summary?.overall_fairness_score ?? report.result.fairness_summary.corrected_fairness_score ?? null;
+}
+
+function getBiasSignal(report: AnalysisPayload) {
+  return Math.max(0, 100 - report.result.fairness_summary.overall_fairness_score);
+}
+
+function getProtocolType(report: AnalysisPayload) {
+  if (report.mitigationPreview) return "Mitigation Report";
+  if (isTargetMet(report)) return "Compliance Report";
+  if (report.result.metadata.prediction_column) return "Model Evaluation";
+  return "Dataset Analysis";
+}
+
+function getBiasColor(score: number) {
+  if (score < 20) return "border-emerald-500/20 bg-emerald-500/10 text-emerald-400";
+  if (score < 40) return "border-teal-500/20 bg-teal-500/10 text-teal-400";
+  return "border-yellow-500/20 bg-yellow-500/10 text-yellow-400";
+}
+
+function isTargetMet(report: AnalysisPayload) {
+  const correctedScore = getCorrectedScore(report);
+  return typeof correctedScore === "number" ? correctedScore >= 95 : report.result.fairness_summary.overall_fairness_score >= 95;
+}
+
+function buildAnomalyFindings(report: AnalysisPayload) {
+  const findings = [...report.result.sensitive_findings]
+    .sort((left, right) => left.fairness_score - right.fairness_score)
+    .map(
+      (finding) =>
+        `${finding.sensitive_column} fairness ${formatMetric(finding.fairness_score)}% with ${finding.risk_level} risk and disparate impact ${finding.disparate_impact.toFixed(2)}.`,
+    );
+
+  return Array.from(new Set([...findings, ...report.result.root_causes.map((cause) => cause.details)])).slice(0, 3);
+}
+
+function buildCorrectiveProtocols(report: AnalysisPayload) {
+  return report.result.recommendations.map((rec) => `${rec.title}: ${rec.description}`).slice(0, 3);
+}
+
+function formatRelativeTimestamp(value: string) {
+  const createdAt = new Date(value);
+  const diffMs = Date.now() - createdAt.getTime();
+  if (Number.isNaN(createdAt.getTime()) || diffMs < 0) return "UNKNOWN";
+
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 60) return `${Math.max(minutes, 1)} MIN AGO`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} HOUR${hours === 1 ? "" : "S"} AGO`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} DAY${days === 1 ? "" : "S"} AGO`;
+
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks} WEEK${weeks === 1 ? "" : "S"} AGO`;
+
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} MONTH${months === 1 ? "" : "S"} AGO`;
+
+  const years = Math.floor(days / 365);
+  return `${years} YEAR${years === 1 ? "" : "S"} AGO`;
+}
+
+function formatDensity(rows: number) {
+  return `${rows.toLocaleString()} ROWS`;
+}
+
+function formatMetric(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  if (value >= 10) return value.toFixed(0);
+  if (value >= 1) return value.toFixed(1);
+  return value.toFixed(2);
+}
+
+function triggerBrowserDownload(url: string) {
+  if (typeof window === "undefined") return;
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function downloadBlob(content: string, fileName: string, contentType: string) {
+  if (typeof window === "undefined") return;
+  const blob = new Blob([content], { type: contentType });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(objectUrl);
+}
+
+function csvEscape(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
 }

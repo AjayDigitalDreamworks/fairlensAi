@@ -4,6 +4,10 @@ A full-stack fairness auditing platform built from your uploaded frontend and in
 - React + Vite frontend
 - Express backend
 - Python FastAPI ML service
+- XGBoost surrogate modeling
+- Apache Spark assisted large-dataset sampling
+- Training-time reweighing for supervised fairness repair
+- Intersectional fairness analysis across combined sensitive groups
 - detection layer
 - explanation layer
 - root-cause layer
@@ -16,10 +20,12 @@ A full-stack fairness auditing platform built from your uploaded frontend and in
 - `frontend/` React + Vite app
 - `backend/` Express API and persistence layer
 - `ml-service/` FastAPI model and fairness analysis engine
+  Runs the fairness pipeline with XGBoost-based supervised surrogate predictions and optional Spark acceleration for large sampled workloads.
 
 pip install fairlearn
 pip install tensorflow
 pip install inFairness
+Install Java 17 as well if you want the local Spark acceleration path outside Docker.
 
 ## Local run
 

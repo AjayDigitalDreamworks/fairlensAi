@@ -41,6 +41,16 @@ export async function listAnalyses(): Promise<AnalysisPayload[]> {
   return payload.items ?? [];
 }
 
+export async function deleteAnalysis(analysisId: string): Promise<{ id: string }> {
+  const response = await fetch(`${API_URL}/analyses/${analysisId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    return parseError(response, "Failed to delete analysis");
+  }
+  return response.json();
+}
+
 export function getCorrectedCsvUrl(analysisId: string) {
   return `${API_URL}/analyses/${analysisId}/corrected.csv`;
 }

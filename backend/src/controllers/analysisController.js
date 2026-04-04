@@ -1,4 +1,4 @@
-import { createAnalysis, createMitigationPreview, getAnalysis, getAnalysisArtifact, listAnalyses } from '../services/analysisService.js';
+import { createAnalysis, createMitigationPreview, deleteAnalysis, getAnalysis, getAnalysisArtifact, listAnalyses } from '../services/analysisService.js';
 import { healthCheckPython } from '../services/pythonService.js';
 
 export async function health(req, res, next) {
@@ -32,6 +32,15 @@ export function getOne(req, res) {
     return res.status(404).json({ message: 'Analysis not found.' });
   }
   res.json(stripInternalPaths(item));
+}
+
+export function removeOne(req, res, next) {
+  try {
+    const deleted = deleteAnalysis(req.params.id);
+    res.json({ id: deleted.id });
+  } catch (error) {
+    next(error);
+  }
 }
 
 export async function mitigationPreview(req, res, next) {

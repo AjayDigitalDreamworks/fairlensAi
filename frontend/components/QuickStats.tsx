@@ -1,16 +1,18 @@
 "use client";
 
-const quickStats = [
+import type { QuickStatItem } from "@/lib/analysis-insights";
+
+const defaultQuickStats: QuickStatItem[] = [
   { label: "Total Audits", value: "24", change: "+3 this week" },
   { label: "Avg Bias Score", value: "12%", change: "-5 pts" },
   { label: "Models Fixed", value: "18", change: "+2 this month" },
   { label: "Compliance Score", value: "94%", change: "+12 pts" },
 ];
 
-export default function QuickStats() {
+export default function QuickStats({ stats = defaultQuickStats }: { stats?: QuickStatItem[] }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      {quickStats.map((stat, idx) => (
+      {stats.map((stat, idx) => (
         <div
           key={idx}
           className="card-glow p-6 space-y-2 hover:border-primary/50 transition-all cursor-crosshair group"
