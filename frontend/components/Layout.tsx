@@ -106,7 +106,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-4">
               <ThemeToggle />
               <div className="text-sm text-muted-foreground hidden sm:block">
-                {pathname === "/analyzer" ? "Automated audit queue" : "Fairness operations hub"}
+                {pathname === "/analyzer"
+                  ? "Automated audit queue"
+                  : pathname === "/explainability"
+                    ? "Model attribution hub"
+                    : "Fairness operations hub"}
               </div>
               <div className="h-8 w-8 border border-primary/50 bg-primary/10 flex items-center justify-center text-primary font-bold text-xs" style={{ borderRadius: 'var(--theme-border-radius)' }}>
                 U

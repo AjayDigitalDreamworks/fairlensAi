@@ -46,6 +46,7 @@ const liveStages = [
 export default function DatasetAnalyzer() {
   const [file, setFile] = useState<File | null>(null);
   const [domain, setDomain] = useState("auto");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisPayload | null>(null);
@@ -127,6 +128,9 @@ export default function DatasetAnalyzer() {
       form.append("file", file);
       form.append("domain", domain);
       form.append("positiveLabel", "1");
+      if (geminiApiKey.trim()) {
+        form.append("geminiApiKey", geminiApiKey.trim());
+      }
       const nextAnalysis = await uploadAnalysis(form);
       saveAnalysis(nextAnalysis);
       setAnalysis(nextAnalysis);
@@ -198,13 +202,31 @@ export default function DatasetAnalyzer() {
                   <option value="hiring">Hiring</option>
                   <option value="finance">Finance</option>
                   <option value="healthcare">Healthcare</option>
-                </select>
+                  </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-mono uppercase tracking-[0.3em] text-emerald-300">Gemini API Key</label>
+                <input
+                  type="password"
+                  value={geminiApiKey}
+                  onChange={(event) => setGeminiApiKey(event.target.value)}
+                  placeholder="Optional: used for plain-language SHAP narration"
+                  className="w-full border border-white/10 bg-black/30 px-4 py-3 text-sm text-white"
+                />
               </div>
 
               <div className="terminal-card p-4">
                 <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Automation layer</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Target, prediction, sensitive fields, fairness metrics, proxy scan, correction output, and report packaging run automatically.
+                  Target, prediction, sensitive fields, fairness metrics, TreeSHAP explanations, correction output, and report packaging run automatically.
+                </p>
+              </div>
+
+              <div className="terminal-card p-4 md:col-span-2">
+                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narration layer</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  If you paste a Gemini key here, FairLens sends it only with this analysis request so the ML service can convert SHAP numbers into plain-language audit notes.
                 </p>
               </div>
             </div>
@@ -245,6 +267,9 @@ export default function DatasetAnalyzer() {
                           Open trend dashboard
                           <ArrowRight className="ml-2 h-4 w-4" />
                         </Link>
+                      </Button>
+                      <Button asChild variant="outline" className="border-white/10 text-white hover:bg-white/5">
+                        <Link to="/explainability">Open explanations</Link>
                       </Button>
                       <Button asChild variant="outline" className="border-white/10 text-white hover:bg-white/5">
                         <Link to="/reports">Open report</Link>

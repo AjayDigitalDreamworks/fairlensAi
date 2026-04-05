@@ -3,8 +3,11 @@ from __future__ import annotations
 import io
 import json
 import os
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
 from itertools import combinations
+from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -18,11 +21,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 try:
-    from xgboost import XGBClassifier
+    from xgboost import DMatrix, XGBClassifier
 
     XGBOOST_AVAILABLE = True
     XGBOOST_IMPORT_ERROR = ""
 except Exception as exc:  # pragma: no cover - import-time environment specific
+    DMatrix = None  # type: ignore[assignment]
     XGBClassifier = None  # type: ignore[assignment]
     XGBOOST_AVAILABLE = False
     XGBOOST_IMPORT_ERROR = str(exc)
@@ -52,6 +56,26 @@ except Exception as exc:  # pragma: no cover - import-time environment specific
     PYSPARK_IMPORT_ERROR = str(exc)
 
 SERVICE_VERSION = "1.3.0"
+
+
+def load_local_env_file() -> None:
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key:
+            os.environ.setdefault(key, value)
+
+
+load_local_env_file()
 
 app = FastAPI(title="FairAI ML Service", version=SERVICE_VERSION)
 
@@ -108,6 +132,11 @@ REWEIGHING_WEIGHT_CLIP_MIN = 0.35
 REWEIGHING_WEIGHT_CLIP_MAX = 4.0
 MIN_REWEIGHING_CELL_COUNT = 5
 SHAP_SAMPLE_ROWS = 200
+GLOBAL_SHAP_FEATURE_LIMIT = 10
+LOCAL_EXPLANATION_LIMIT = 3
+LOCAL_CONTRIBUTOR_LIMIT = 4
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_MODEL = os.getenv("FAIRAI_GEMINI_MODEL", "gemini-2.5-flash")
 SPARK_ENABLED = os.getenv("FAIRAI_SPARK_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
 SPARK_MASTER = os.getenv("FAIRAI_SPARK_MASTER", "local[*]")
 SPARK_APP_NAME = "FairAI-ML-Service"
@@ -144,7 +173,6 @@ def health() -> Dict[str, Any]:
         "spark": spark_runtime_status(),
     }
 
-
 @app.post("/analyze/file")
 async def analyze_file(
     file: UploadFile = File(...),
@@ -153,6 +181,7 @@ async def analyze_file(
     prediction_column: str = Form(""),
     sensitive_columns: str = Form("[]"),
     positive_label: str = Form("1"),
+    gemini_api_key: str = Form(""),
 ) -> Dict[str, Any]:
     try:
         sensitive = json.loads(sensitive_columns) if sensitive_columns else []
@@ -171,6 +200,7 @@ async def analyze_file(
         prediction_column=prediction_column or None,
         sensitive_columns=sensitive,
         positive_label=parse_positive_label(positive_label),
+        gemini_api_key=gemini_api_key or None,
         source_name=file.filename or "uploaded-dataset",
     )
 
@@ -533,6 +563,7 @@ def analyze_dataframe(
     prediction_column: Optional[str],
     sensitive_columns: List[str],
     positive_label: Any,
+    gemini_api_key: Optional[str],
     source_name: str,
 ) -> Dict[str, Any]:
     df = optimize_dataframe_memory(df.copy())
@@ -554,13 +585,13 @@ def analyze_dataframe(
     score_series: Optional[pd.Series] = None
     used_surrogate_model = False
     score_column: Optional[str] = None
+    explainability_bundle: Optional[Dict[str, Any]] = None
     reweighing_summary: Dict[str, Any] = {
         "applied": False,
         "strategy": "intersectional_reweighing",
         "group_columns": [],
         "notes": ["Reweighing was not used for this analysis path."],
     }
-    model_explainability: Optional[Dict[str, Any]] = None
     training_rows_used = min(len(df), MAX_TRAIN_ROWS)
     proxy_scan_rows_used = min(len(df), MAX_PROXY_SCAN_ROWS)
 
@@ -573,7 +604,7 @@ def analyze_dataframe(
         inferred_prediction = "_fairai_prediction"
         score_column = "_fairai_prediction_score"
         if inferred_target:
-            df[inferred_prediction], score_series, reweighing_summary, model_explainability = generate_supervised_predictions(
+            df[inferred_prediction], score_series, reweighing_summary, explainability_bundle = generate_supervised_predictions(
                 df,
                 inferred_target,
                 positive_label,
@@ -585,6 +616,17 @@ def analyze_dataframe(
         used_surrogate_model = True
     elif is_probability_like(df[inferred_prediction]):
         score_column = inferred_prediction
+
+    if explainability_bundle is None and inferred_prediction:
+        explainability_bundle = build_prediction_explainability_bundle(
+            df,
+            inferred_prediction,
+            inferred_target,
+            positive_label,
+            inferred_sensitive,
+        )
+    if explainability_bundle:
+        training_rows_used = int(explainability_bundle.get("training_rows_used", training_rows_used))
 
     fairness_summary = {"overall_fairness_score": 100.0}
     findings = [analyze_sensitive_column(df, sensitive, inferred_prediction, inferred_target, positive_label) for sensitive in inferred_sensitive]
@@ -655,6 +697,18 @@ def analyze_dataframe(
     fairness_summary["fairness_target_met"] = corrected_score >= 95.0
     fairness_summary["fairness_target_gap"] = round(max(0.0, 95.0 - corrected_score), 2)
     spark_acceleration_active = large_dataset_mode and _SPARK_SESSION is not None
+    explainability = build_explainability(
+        df=df,
+        prediction_column=inferred_prediction,
+        target_column=inferred_target,
+        sensitive_columns=inferred_sensitive,
+        source_name=source_name,
+        resolved_domain=resolved_domain,
+        fairness_summary=fairness_summary,
+        findings=findings,
+        model_bundle=explainability_bundle,
+        gemini_api_key=gemini_api_key,
+    )
     explanation = build_explanation(
         resolved_domain,
         source_name,
@@ -663,13 +717,7 @@ def analyze_dataframe(
         intersectional_findings,
         root_causes,
         reweighing_summary,
-    )
-    explainability = build_explainability(
-        df,
-        inferred_prediction,
-        inferred_target,
-        inferred_sensitive,
-        model_explainability=model_explainability,
+        explainability,
     )
     analysis_log = build_analysis_log(
         source_name=source_name,
@@ -723,6 +771,7 @@ def analyze_dataframe(
             "correction_method": correction_summary["method"],
             "precorrected_upload": precorrected_upload,
             "surrogate_model": "xgboost" if used_surrogate_model else "user_supplied_predictions",
+            "explainability_model_source": explainability.get("model_source"),
             "spark_acceleration_active": spark_acceleration_active,
             "reweighing_applied": bool(reweighing_summary.get("applied")),
             "intersectional_analysis_enabled": bool(intersectional_findings),
@@ -734,7 +783,7 @@ def analyze_dataframe(
             "prediction_column": inferred_prediction,
             "sensitive_columns": inferred_sensitive,
             "positive_label": str(positive_label),
-            "generated_target": inferred_target not in df.columns,
+            "generated_target": bool(inferred_target and inferred_target not in df.columns),
             "generated_prediction": used_surrogate_model,
             "notes": [
                 "Domain auto-detected from column names." if requested_domain in ("", "auto") else f"Domain fixed to {resolved_domain}.",
@@ -751,6 +800,7 @@ def analyze_dataframe(
                 else "Large dataset mode enabled with sampled training and batched scoring."
                 if large_dataset_mode
                 else "Standard dataset mode enabled.",
+                explainability.get("note", "Explainability summary was generated."),
                 f"Correction pipeline used {correction_summary['method']}.",
                 "Uploaded file already contained a corrected prediction and was re-audited without re-correcting the same decisions." if precorrected_upload else "Uploaded file was corrected during this analysis run.",
             ],
@@ -884,19 +934,102 @@ def generate_supervised_predictions(
 ) -> tuple[pd.Series, pd.Series, Dict[str, Any], Optional[Dict[str, Any]]]:
     X = df.drop(columns=[target_column])
     y = normalize_binary(df[target_column], positive_label)
-    sampled = sample_frame(pd.concat([X, y.rename(target_column)], axis=1), MAX_TRAIN_ROWS, target_column)
-    X_train = sampled.drop(columns=[target_column])
-    y_train = sampled[target_column]
+    _, probabilities, reweighing_summary, bundle = fit_binary_xgboost_bundle(
+        X,
+        y,
+        sensitive_columns=sensitive_columns,
+        sample_target_name=target_column,
+        model_source="xgboost_training_model",
+        explanation_basis=f"Trained on target column '{target_column}' to generate analysis predictions.",
+        apply_reweighing=True,
+    )
+    predictions = (probabilities >= 0.5).astype(int)
+    bundle["prediction_target_column"] = target_column
+    bundle["positive_label"] = str(positive_label)
+    return pd.Series(predictions, index=df.index), pd.Series(probabilities, index=df.index), reweighing_summary, bundle
+
+
+def fit_binary_xgboost_bundle(
+    X: pd.DataFrame,
+    y: pd.Series,
+    sensitive_columns: List[str],
+    sample_target_name: str,
+    model_source: str,
+    explanation_basis: str,
+    apply_reweighing: bool,
+) -> tuple[np.ndarray, np.ndarray, Dict[str, Any], Dict[str, Any]]:
+    sampled = sample_frame(pd.concat([X, y.rename(sample_target_name)], axis=1), MAX_TRAIN_ROWS, sample_target_name)
+    X_train = sampled.drop(columns=[sample_target_name])
+    y_train = sampled[sample_target_name]
     compactors = fit_category_compactors(X_train)
     X_train = apply_category_compactors(X_train, compactors)
     X_full = apply_category_compactors(X, compactors)
-    sample_weights, reweighing_summary = compute_reweighing_weights(X_train, y_train, sensitive_columns)
+
+    if apply_reweighing:
+        sample_weights, reweighing_summary = compute_reweighing_weights(X_train, y_train, sensitive_columns)
+    else:
+        sample_weights = pd.Series(np.ones(len(y_train), dtype=float), index=y_train.index)
+        reweighing_summary = {
+            "applied": False,
+            "strategy": "none",
+            "group_columns": [],
+            "notes": ["Reweighing was intentionally disabled for the explainability surrogate."],
+        }
+
     model = build_model_pipeline(X_train, y_train)
     model.fit(X_train, y_train, model__sample_weight=sample_weights.to_numpy())
     probabilities = predict_in_batches(model, X_full)
     predictions = (probabilities >= 0.5).astype(int)
-    shap_explainability = build_shap_explainability(model, X_train)
-    return pd.Series(predictions, index=df.index), pd.Series(probabilities, index=df.index), reweighing_summary, shap_explainability
+    numeric_columns = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_columns = [col for col in X_train.columns if col not in numeric_columns]
+    bundle = {
+        "pipeline": model,
+        "compactors": compactors,
+        "feature_columns": X.columns.tolist(),
+        "numeric_columns": numeric_columns,
+        "categorical_columns": categorical_columns,
+        "training_rows_used": int(len(sampled)),
+        "model_source": model_source,
+        "explanation_basis": explanation_basis,
+        "prediction_scores": probabilities,
+    }
+    return predictions, probabilities, reweighing_summary, bundle
+
+
+def build_prediction_explainability_bundle(
+    df: pd.DataFrame,
+    prediction_column: str,
+    target_column: Optional[str],
+    positive_label: Any,
+    sensitive_columns: List[str],
+) -> Optional[Dict[str, Any]]:
+    if prediction_column not in df.columns:
+        return None
+
+    feature_frame = df.drop(columns=[prediction_column], errors="ignore")
+    if target_column:
+        feature_frame = feature_frame.drop(columns=[target_column], errors="ignore")
+    if feature_frame.empty:
+        return None
+
+    prediction_series = df[prediction_column]
+    if is_probability_like(prediction_series):
+        prediction_binary = (pd.to_numeric(prediction_series, errors="coerce").fillna(0) >= 0.5).astype(int)
+    else:
+        prediction_binary = normalize_binary(prediction_series, positive_label)
+
+    _, _, _, bundle = fit_binary_xgboost_bundle(
+        feature_frame,
+        prediction_binary,
+        sensitive_columns=sensitive_columns,
+        sample_target_name=prediction_column,
+        model_source="prediction_surrogate_model",
+        explanation_basis=(
+            f"Trained a surrogate XGBoost model to approximate prediction column '{prediction_column}' for explainability."
+        ),
+        apply_reweighing=False,
+    )
+    return bundle
 
 
 def build_shap_explainability(model: Pipeline, X_train: pd.DataFrame) -> Optional[Dict[str, Any]]:
@@ -1351,45 +1484,53 @@ def build_explanation(
     intersectional_findings: List[Dict[str, Any]],
     root_causes: List[Dict[str, Any]],
     reweighing_summary: Dict[str, Any],
+    explainability: Dict[str, Any],
 ) -> Dict[str, Any]:
     worst = sorted(findings, key=lambda item: item["fairness_score"])[0] if findings else None
     worst_intersectional = sorted(intersectional_findings, key=lambda item: item["fairness_score"])[0] if intersectional_findings else None
-    summary = (
+    fallback_summary = (
         f"Analysis for {source_name} in the {domain} domain shows an overall fairness score of "
         f"{fairness_summary['overall_fairness_score']} and a corrected score of "
         f"{fairness_summary.get('corrected_fairness_score', fairness_summary['overall_fairness_score'])}."
     )
     if worst:
-        summary += (
+        fallback_summary += (
             f" The most affected attribute is '{worst['sensitive_column']}', with disparate impact "
             f"{worst['disparate_impact']} and demographic parity difference {worst['demographic_parity_difference']}."
         )
     if worst_intersectional:
-        summary += (
+        fallback_summary += (
             f" The weakest intersectional slice is '{worst_intersectional['sensitive_column']}', scoring "
             f"{worst_intersectional['fairness_score']}."
         )
     if root_causes:
-        summary += " Likely drivers include representation imbalance and proxy-feature effects."
+        fallback_summary += " Likely drivers include representation imbalance and proxy-feature effects."
     if reweighing_summary.get("applied"):
-        summary += " Training-time intersectional reweighing was applied to the surrogate model."
+        fallback_summary += " Training-time intersectional reweighing was applied to the surrogate model."
     if fairness_summary.get("overall_fairness_score") == fairness_summary.get("corrected_fairness_score"):
-        summary += " The uploaded file appears to already contain the corrected decisions used for audit."
+        fallback_summary += " The uploaded file appears to already contain the corrected decisions used for audit."
     if fairness_summary.get("fairness_target_met"):
-        summary += " The corrected run meets the 95 fairness target."
+        fallback_summary += " The corrected run meets the 95 fairness target."
     else:
-        summary += f" The corrected run remains {fairness_summary.get('fairness_target_gap', 0)} points short of the 95 target."
+        fallback_summary += f" The corrected run remains {fairness_summary.get('fairness_target_gap', 0)} points short of the 95 target."
+
+    gemini_summary = explainability.get("gemini_narrative", {}).get("summary")
+    gemini_key_points = explainability.get("gemini_narrative", {}).get("key_points", [])
+    summary = gemini_summary or fallback_summary
+    plain_language = [
+        *[str(item) for item in gemini_key_points if str(item).strip()],
+        "The system compares outcomes across sensitive groups instead of checking only overall accuracy.",
+        "Intersectional fairness checks whether combined identities such as gender plus age group suffer larger disparities than each attribute alone.",
+        "A low disparate impact means one group receives favorable outcomes much less often than the baseline group.",
+        "SHAP values show which model inputs pushed a prediction toward or away from the positive outcome.",
+        "Corrected fairness is the post-mitigation score shown on the dashboard and report.",
+        "The correction engine now applies iterative parity repair after threshold tuning to stabilize re-audits.",
+        "Supervised surrogate predictions now use XGBoost, Spark accelerates sampled large-dataset workloads when its runtime is available, and reweighing balances the training signal across intersectional groups.",
+    ]
+    plain_language = list(dict.fromkeys(plain_language))
     return {
         "executive_summary": summary,
-        "plain_language": [
-            "The system compares outcomes across sensitive groups instead of checking only overall accuracy.",
-            "Intersectional fairness checks whether combined identities such as gender plus age group suffer larger disparities than each attribute alone.",
-            "A low disparate impact means one group receives favorable outcomes much less often than the baseline group.",
-            "Proxy-feature risk means a non-sensitive column may still carry hidden demographic information.",
-            "Corrected fairness is the post-mitigation score shown on the dashboard and report.",
-            "The correction engine now applies iterative parity repair after threshold tuning to stabilize re-audits.",
-            "Supervised surrogate predictions now use XGBoost, Spark accelerates sampled large-dataset workloads when its runtime is available, and reweighing balances the training signal across intersectional groups.",
-        ],
+        "plain_language": plain_language,
     }
 
 
@@ -1694,16 +1835,13 @@ def iterative_fairness_repair(
     }
 
 
-def build_explainability(
+def build_proxy_explainability(
     df: pd.DataFrame,
     prediction_column: str,
     target_column: Optional[str],
     sensitive_columns: List[str],
-    model_explainability: Optional[Dict[str, Any]] = None,
+    note: Optional[str] = None,
 ) -> Dict[str, Any]:
-    if model_explainability:
-        return model_explainability
-
     top_features = []
     sampled = sample_frame(df, MAX_PROXY_SCAN_ROWS, target_column)
     for column in sampled.columns:
@@ -1721,32 +1859,498 @@ def build_explainability(
         {
             "feature": item["feature"],
             "impact": item["score"],
-            "direction": "shifts",
-            "summary": f"Feature '{item['feature']}' shows strong proxy-style influence in the local audit model.",
+            "direction": "proxy influence",
+            "summary": f"Feature '{item['feature']}' shows strong proxy-style influence in the fallback scan.",
         }
         for item in top_features
     ]
-    lime_style_example = [
+    return {
+        "status": "proxy_fallback",
+        "method": "proxy_scan",
+        "model_source": "proxy_scan",
+        "methods_available": ["rule_based_proxy_scan", "surrogate_feature_ranking", "group_threshold_optimization", "massaging_correction"],
+        "methods_unavailable": ["TreeSHAP"],
+        "top_features": top_features,
+        "shap_style_summary": shap_style_summary,
+        "lime_style_example": shap_style_summary[:3],
+        "global_feature_importance": [],
+        "local_explanations": [],
+        "gemini_narrative": {
+            "status": "skipped",
+            "model": GEMINI_MODEL,
+            "summary": None,
+            "key_points": [],
+            "risk_statement": "Gemini narration was skipped because TreeSHAP output was not available for this run.",
+            "recommended_focus": "Run the analysis with a trainable XGBoost path or a prediction column that can be modeled.",
+        },
+        "note": note
+        or "TreeSHAP was not available for this run, so the service fell back to a correlation-style proxy scan.",
+    }
+
+
+def match_encoded_feature_to_source(encoded_name: str, candidates: List[str]) -> str:
+    for column in sorted(candidates, key=len, reverse=True):
+        if encoded_name == column or encoded_name.startswith(f"{column}_"):
+            return column
+    return encoded_name
+
+
+def build_transformed_feature_source_map(
+    feature_names: List[str],
+    model_bundle: Dict[str, Any],
+    preprocessor: ColumnTransformer,
+) -> Dict[str, str]:
+    source_map: Dict[str, str] = {}
+    numeric_columns = [str(column) for column in model_bundle.get("numeric_columns", [])]
+    categorical_columns = [str(column) for column in model_bundle.get("categorical_columns", [])]
+
+    for column in numeric_columns:
+        source_map[f"num__{column}"] = column
+
+    cat_transformer = getattr(preprocessor, "named_transformers_", {}).get("cat")
+    encoder = cat_transformer.named_steps.get("onehot") if hasattr(cat_transformer, "named_steps") else None
+    if encoder is not None and categorical_columns:
+        encoded_names = encoder.get_feature_names_out(categorical_columns).tolist()
+        for encoded_name in encoded_names:
+            source_map[f"cat__{encoded_name}"] = match_encoded_feature_to_source(encoded_name, categorical_columns)
+
+    for feature_name in feature_names:
+        if feature_name not in source_map:
+            source_map[feature_name] = feature_name.split("__", 1)[-1] if "__" in feature_name else feature_name
+
+    return source_map
+
+
+def aggregate_contributions_by_feature(
+    feature_contributions: np.ndarray,
+    feature_names: List[str],
+    feature_columns: List[str],
+    source_map: Dict[str, str],
+) -> Tuple[List[str], np.ndarray]:
+    ordered_features = list(feature_columns)
+    feature_index = {feature: idx for idx, feature in enumerate(ordered_features)}
+    aggregated = np.zeros((feature_contributions.shape[0], len(ordered_features)), dtype=float)
+
+    for column_idx, transformed_name in enumerate(feature_names):
+        source_feature = source_map.get(transformed_name, transformed_name)
+        if source_feature not in feature_index:
+            feature_index[source_feature] = len(ordered_features)
+            ordered_features.append(source_feature)
+            aggregated = np.pad(aggregated, ((0, 0), (0, 1)))
+        aggregated[:, feature_index[source_feature]] += feature_contributions[:, column_idx]
+
+    return ordered_features, aggregated
+
+
+def sigmoid(value: float) -> float:
+    bounded = float(np.clip(value, -30.0, 30.0))
+    return 1.0 / (1.0 + float(np.exp(-bounded)))
+
+
+def format_feature_value(value: Any) -> str:
+    if pd.isna(value):
+        return "missing"
+    if isinstance(value, (float, np.floating)):
+        return f"{float(value):.4f}"
+    return str(value)
+
+
+def select_local_sample_positions(prediction_scores: np.ndarray, row_strength: np.ndarray) -> List[int]:
+    if prediction_scores.size == 0:
+        return []
+
+    positions = [
+        int(np.argmax(prediction_scores)),
+        int(np.argmin(prediction_scores)),
+        int(np.argmin(np.abs(prediction_scores - 0.5))),
+    ]
+    positions.extend(int(position) for position in np.argsort(-row_strength).tolist())
+
+    unique_positions: List[int] = []
+    for position in positions:
+        if position not in unique_positions:
+            unique_positions.append(position)
+        if len(unique_positions) >= LOCAL_EXPLANATION_LIMIT:
+            break
+    return unique_positions
+
+
+def extract_json_object(text: str) -> Optional[Dict[str, Any]]:
+    if not text:
+        return None
+    try:
+        payload = json.loads(text)
+        return payload if isinstance(payload, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+
+    try:
+        payload = json.loads(text[start : end + 1])
+        return payload if isinstance(payload, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def extract_gemini_text(response_payload: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    for candidate in response_payload.get("candidates", []):
+        content = candidate.get("content", {})
+        for part in content.get("parts", []):
+            text = part.get("text")
+            if text:
+                parts.append(str(text))
+    return "\n".join(parts).strip()
+
+
+def build_gemini_narrative(
+    source_name: str,
+    resolved_domain: str,
+    fairness_summary: Dict[str, Any],
+    findings: List[Dict[str, Any]],
+    explainability: Dict[str, Any],
+    gemini_api_key: Optional[str],
+) -> Dict[str, Any]:
+    api_key = (gemini_api_key or os.getenv("GEMINI_API_KEY", "")).strip()
+    if not api_key:
+        return {
+            "status": "not_configured",
+            "model": GEMINI_MODEL,
+            "summary": None,
+            "key_points": [],
+            "risk_statement": "Gemini narration is available, but no Gemini API key was supplied for this analysis run.",
+            "recommended_focus": "Pass geminiApiKey during upload or set GEMINI_API_KEY for the ml-service.",
+        }
+
+    worst_findings = sorted(findings, key=lambda item: item["fairness_score"])[:2]
+    payload = {
+        "dataset": source_name,
+        "domain": resolved_domain,
+        "overall_fairness_score": fairness_summary.get("overall_fairness_score"),
+        "corrected_fairness_score": fairness_summary.get("corrected_fairness_score"),
+        "fairness_target": fairness_summary.get("fairness_target"),
+        "fairness_target_met": fairness_summary.get("fairness_target_met"),
+        "worst_group_findings": [
+            {
+                "sensitive_column": item.get("sensitive_column"),
+                "fairness_score": item.get("fairness_score"),
+                "disparate_impact": item.get("disparate_impact"),
+                "demographic_parity_difference": item.get("demographic_parity_difference"),
+            }
+            for item in worst_findings
+        ],
+        "global_shap_drivers": [
+            {
+                "feature": item.get("feature"),
+                "mean_abs_shap": item.get("mean_abs_shap"),
+                "importance_share": item.get("importance_share"),
+                "direction": item.get("direction"),
+                "sensitive": item.get("sensitive"),
+            }
+            for item in explainability.get("global_feature_importance", [])[:5]
+        ],
+        "local_examples": [
+            {
+                "sample_id": item.get("sample_id"),
+                "prediction_probability": item.get("prediction_probability"),
+                "top_contributors": [
+                    {
+                        "feature": contributor.get("feature"),
+                        "value": contributor.get("value"),
+                        "direction": contributor.get("direction"),
+                        "shap_value": contributor.get("shap_value"),
+                        "sensitive": contributor.get("sensitive"),
+                    }
+                    for contributor in item.get("top_contributors", [])[:3]
+                ],
+            }
+            for item in explainability.get("local_explanations", [])[:2]
+        ],
+    }
+    prompt = (
+        "You explain fairness audits for product managers.\n"
+        "Use only the supplied numbers.\n"
+        "Return strict JSON with keys: summary, key_points, risk_statement, recommended_focus.\n"
+        "summary should be 2 to 3 short sentences. key_points should be an array of exactly 3 short bullets.\n"
+        "Do not mention missing information or the prompt.\n"
+        f"{json.dumps(payload, ensure_ascii=True)}"
+    )
+    request_payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "responseMimeType": "application/json",
+        },
+    }
+    endpoint = f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(request_payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="ignore") if hasattr(exc, "read") else str(exc)
+        return {
+            "status": "error",
+            "model": GEMINI_MODEL,
+            "summary": None,
+            "key_points": [],
+            "risk_statement": "Gemini narration failed.",
+            "recommended_focus": "Verify the Gemini API key and model access, then rerun the analysis.",
+            "error": error_body or str(exc),
+        }
+    except Exception as exc:  # pragma: no cover - depends on outbound network runtime
+        return {
+            "status": "error",
+            "model": GEMINI_MODEL,
+            "summary": None,
+            "key_points": [],
+            "risk_statement": "Gemini narration failed.",
+            "recommended_focus": "Check outbound network access from the ml-service and rerun the analysis.",
+            "error": str(exc),
+        }
+
+    text = extract_gemini_text(response_payload)
+    parsed = extract_json_object(text)
+    if parsed:
+        key_points = parsed.get("key_points") if isinstance(parsed.get("key_points"), list) else []
+        return {
+            "status": "available",
+            "model": GEMINI_MODEL,
+            "summary": str(parsed.get("summary", "")).strip() or None,
+            "key_points": [str(item).strip() for item in key_points if str(item).strip()],
+            "risk_statement": str(parsed.get("risk_statement", "")).strip() or None,
+            "recommended_focus": str(parsed.get("recommended_focus", "")).strip() or None,
+        }
+
+    return {
+        "status": "available",
+        "model": GEMINI_MODEL,
+        "summary": text or "Gemini returned a response, but it did not match the requested JSON structure.",
+        "key_points": [],
+        "risk_statement": None,
+        "recommended_focus": None,
+    }
+
+
+def build_tree_shap_explainability(
+    df: pd.DataFrame,
+    sensitive_columns: List[str],
+    model_bundle: Dict[str, Any],
+) -> Dict[str, Any]:
+    if not XGBOOST_AVAILABLE or DMatrix is None:
+        raise RuntimeError(f"XGBoost runtime is unavailable: {XGBOOST_IMPORT_ERROR}")
+
+    pipeline = model_bundle["pipeline"]
+    feature_columns = [column for column in model_bundle.get("feature_columns", []) if column in df.columns]
+    if not feature_columns:
+        raise RuntimeError("No model feature columns were available for TreeSHAP generation.")
+
+    feature_frame = apply_category_compactors(df[feature_columns].copy(), model_bundle.get("compactors", {}))
+    preprocessor = pipeline.named_steps["preprocessor"]
+    estimator = pipeline.named_steps["model"]
+    transformed = preprocessor.transform(feature_frame)
+    feature_names = preprocessor.get_feature_names_out().tolist()
+    booster = estimator.get_booster()
+    contributions = booster.predict(
+        DMatrix(transformed, feature_names=feature_names),
+        pred_contribs=True,
+        validate_features=False,
+    )
+    if contributions.ndim != 2 or contributions.shape[1] <= 1:
+        raise RuntimeError("TreeSHAP prediction output was empty.")
+
+    bias_terms = contributions[:, -1]
+    feature_contributions = contributions[:, :-1]
+    source_map = build_transformed_feature_source_map(feature_names, model_bundle, preprocessor)
+    raw_feature_names, aggregated = aggregate_contributions_by_feature(
+        feature_contributions,
+        feature_names,
+        feature_columns,
+        source_map,
+    )
+
+    mean_abs = np.mean(np.abs(aggregated), axis=0)
+    mean_signed = np.mean(aggregated, axis=0)
+    total_abs = max(float(np.sum(mean_abs)), 1e-9)
+
+    global_feature_importance = []
+    for idx, feature_name in enumerate(raw_feature_names):
+        if mean_abs[idx] <= 0:
+            continue
+        signed_value = float(mean_signed[idx])
+        direction = (
+            "pushes toward the positive outcome"
+            if signed_value > 0.001
+            else "pushes away from the positive outcome"
+            if signed_value < -0.001
+            else "mixed influence"
+        )
+        global_feature_importance.append(
+            {
+                "feature": feature_name,
+                "mean_abs_shap": round(float(mean_abs[idx]), 6),
+                "average_directional_shap": round(signed_value, 6),
+                "importance_share": round(float(mean_abs[idx] / total_abs), 4),
+                "direction": direction,
+                "sensitive": feature_name in set(sensitive_columns),
+                "summary": f"{feature_name} {direction} in the XGBoost analysis model.",
+            }
+        )
+    global_feature_importance = sorted(
+        global_feature_importance,
+        key=lambda item: float(item["mean_abs_shap"]),
+        reverse=True,
+    )[:GLOBAL_SHAP_FEATURE_LIMIT]
+
+    prediction_scores = np.asarray(
+        model_bundle.get("prediction_scores")
+        if model_bundle.get("prediction_scores") is not None
+        else predict_in_batches(pipeline, feature_frame),
+        dtype=float,
+    )
+    row_strength = np.sum(np.abs(aggregated), axis=1)
+    local_positions = select_local_sample_positions(prediction_scores, row_strength)
+    local_explanations = []
+    for rank, position in enumerate(local_positions, start=1):
+        top_indices = np.argsort(np.abs(aggregated[position]))[::-1][:LOCAL_CONTRIBUTOR_LIMIT]
+        top_total = max(float(np.sum(np.abs(aggregated[position, top_indices]))), 1e-9)
+        top_contributors = []
+        for feature_idx in top_indices:
+            feature_name = raw_feature_names[feature_idx]
+            shap_value = float(aggregated[position, feature_idx])
+            top_contributors.append(
+                {
+                    "feature": feature_name,
+                    "value": format_feature_value(feature_frame.iloc[position][feature_name]) if feature_name in feature_frame.columns else "derived",
+                    "shap_value": round(shap_value, 6),
+                    "magnitude": round(abs(shap_value), 6),
+                    "importance_share": round(abs(shap_value) / top_total, 4),
+                    "direction": "raises the positive-outcome score" if shap_value > 0 else "lowers the positive-outcome score" if shap_value < 0 else "neutral",
+                    "sensitive": feature_name in set(sensitive_columns),
+                }
+            )
+
+        row_index = df.index[position]
+        lead_features = ", ".join(item["feature"] for item in top_contributors[:2]) or "multiple features"
+        probability = float(prediction_scores[position]) if position < prediction_scores.shape[0] else 0.0
+        local_explanations.append(
+            {
+                "sample_id": f"sample-{rank}",
+                "row_index": int(row_index) if isinstance(row_index, (int, np.integer)) else str(row_index),
+                "prediction_probability": round(probability, 4),
+                "predicted_label": int(probability >= 0.5),
+                "baseline_probability": round(sigmoid(float(bias_terms[position])), 4),
+                "summary": (
+                    f"Sample {rank} is driven mostly by {lead_features}. "
+                    f"The positive-outcome probability is {probability:.2f}."
+                ),
+                "top_contributors": top_contributors,
+            }
+        )
+
+    top_features = [
         {
             "feature": item["feature"],
-            "impact": item["score"],
-            "direction": "shifts",
-            "summary": f"Local explanation preview flagged '{item['feature']}' as a major contributor.",
+            "score": item["importance_share"],
+            "weight": item["mean_abs_shap"],
+            "direction": item["direction"],
+            "reason": "tree_shap",
         }
-        for item in top_features[:3]
+        for item in global_feature_importance
     ]
+    shap_style_summary = [
+        {
+            "feature": item["feature"],
+            "impact": item["importance_share"],
+            "direction": item["direction"],
+            "summary": item["summary"],
+        }
+        for item in global_feature_importance
+    ]
+    lime_style_example = [
+        {
+            "feature": contributor["feature"],
+            "impact": contributor["magnitude"],
+            "direction": contributor["direction"],
+            "summary": local_explanations[0]["summary"] if local_explanations else contributor["direction"],
+        }
+        for contributor in (local_explanations[0]["top_contributors"] if local_explanations else [])[:3]
+    ]
+
+    model_source = str(model_bundle.get("model_source", "xgboost_training_model"))
     return {
-        "status": "surrogate",
-        "methods_available": ["rule_based_proxy_scan", "surrogate_feature_ranking", "group_threshold_optimization", "massaging_correction"],
-        "methods_unavailable": ["SHAP", "LIME"],
+        "status": "model_based" if model_source == "xgboost_training_model" else "surrogate_model_based",
+        "method": "TreeSHAP",
+        "model_source": model_source,
+        "methods_available": ["TreeSHAP global importance", "TreeSHAP local explanations"],
+        "methods_unavailable": [],
         "top_features": top_features,
         "shap_style_summary": shap_style_summary,
         "lime_style_example": lime_style_example,
-        "note": (
-            "This run fell back to proxy-based explainability because SHAP could not be computed in the local runtime. "
-            f"SHAP import status: {SHAP_IMPORT_ERROR or 'runtime execution unavailable'}."
-        ),
+        "global_feature_importance": global_feature_importance,
+        "local_explanations": local_explanations,
+        "note": "TreeSHAP attributions were computed from the trained XGBoost pipeline for this run.",
     }
+
+
+def build_explainability(
+    df: pd.DataFrame,
+    prediction_column: str,
+    target_column: Optional[str],
+    sensitive_columns: List[str],
+    source_name: str,
+    resolved_domain: str,
+    fairness_summary: Dict[str, Any],
+    findings: List[Dict[str, Any]],
+    model_bundle: Optional[Dict[str, Any]],
+    gemini_api_key: Optional[str],
+) -> Dict[str, Any]:
+    if not model_bundle:
+        return build_proxy_explainability(
+            df,
+            prediction_column,
+            target_column,
+            sensitive_columns,
+            note="No XGBoost model bundle was available for TreeSHAP, so the service used a proxy-risk fallback scan.",
+        )
+
+    try:
+        explainability = build_tree_shap_explainability(df, sensitive_columns, model_bundle)
+    except Exception as exc:
+        fallback = build_proxy_explainability(
+            df,
+            prediction_column,
+            target_column,
+            sensitive_columns,
+            note=f"TreeSHAP generation failed ({exc}). Proxy-risk fallback was returned instead.",
+        )
+        fallback["error"] = str(exc)
+        return fallback
+
+    gemini_narrative = build_gemini_narrative(
+        source_name,
+        resolved_domain,
+        fairness_summary,
+        findings,
+        explainability,
+        gemini_api_key,
+    )
+    explainability["gemini_narrative"] = gemini_narrative
+    if gemini_narrative.get("status") == "available":
+        explainability["methods_available"].append("Gemini plain-language narration")
+    else:
+        explainability["methods_unavailable"].append("Gemini plain-language narration")
+    return explainability
 
 
 def build_analysis_log(
@@ -1881,6 +2485,31 @@ def build_report_markdown(
     lines.extend(["", "## Explainability"])
     for feature in explainability["top_features"]:
         lines.append(f"- {feature['feature']}: {feature['reason']} ({feature['score']})")
+    if explainability.get("global_feature_importance"):
+        lines.extend(["", "## TreeSHAP Global Drivers"])
+        for feature in explainability.get("global_feature_importance", [])[:5]:
+            lines.append(
+                f"- {feature['feature']}: mean_abs_shap {feature['mean_abs_shap']}, share {feature['importance_share']}, {feature['direction']}"
+            )
+    if explainability.get("local_explanations"):
+        lines.extend(["", "## TreeSHAP Local Examples"])
+        for sample in explainability.get("local_explanations", [])[:3]:
+            lines.append(
+                f"- {sample['sample_id']} (row {sample['row_index']}): probability {sample['prediction_probability']}, baseline {sample['baseline_probability']}"
+            )
+            for contributor in sample.get("top_contributors", [])[:3]:
+                lines.append(
+                    f"  - {contributor['feature']}={contributor['value']}: {contributor['direction']} ({contributor['shap_value']})"
+                )
+    gemini_narrative = explainability.get("gemini_narrative", {})
+    if gemini_narrative.get("summary"):
+        lines.extend(["", "## Gemini Narrative", gemini_narrative["summary"]])
+        for point in gemini_narrative.get("key_points", []):
+            lines.append(f"- {point}")
+        if gemini_narrative.get("risk_statement"):
+            lines.append(f"- Risk statement: {gemini_narrative['risk_statement']}")
+        if gemini_narrative.get("recommended_focus"):
+            lines.append(f"- Recommended focus: {gemini_narrative['recommended_focus']}")
     lines.extend(["", "## Analysis Log"])
     for entry in analysis_log:
         lines.append(f"- {entry['title']}: {entry['detail']}")

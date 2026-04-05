@@ -147,7 +147,7 @@ export default function ExplainabilityPage() {
               >
                 {analyses.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.input.fileName} • {new Date(item.createdAt).toLocaleString()}
+                    {item.input.fileName} | {new Date(item.createdAt).toLocaleString()}
                   </option>
                 ))}
               </select>
@@ -280,7 +280,7 @@ export default function ExplainabilityPage() {
                   <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{geminiInterpretation.text}</div>
                   <p className="mt-4 text-[11px] text-muted-foreground/80">
                     Model: {geminiInterpretation.model || "unknown"}
-                    {geminiInterpretation.generatedAt ? ` • ${new Date(geminiInterpretation.generatedAt).toLocaleString()}` : ""}
+                    {geminiInterpretation.generatedAt ? ` | ${new Date(geminiInterpretation.generatedAt).toLocaleString()}` : ""}
                   </p>
                 </div>
               ) : (
