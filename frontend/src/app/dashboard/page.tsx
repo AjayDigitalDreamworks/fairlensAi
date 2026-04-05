@@ -16,6 +16,8 @@ import { listAnalyses } from "@/lib/api";
 import { loadAnalysisHistory } from "@/lib/analysis-store";
 import type { AnalysisPayload } from "@/types/analysis";
 import {
+  Area,
+  AreaChart,
   BarChart,
   Bar,
   CartesianGrid,
@@ -184,26 +186,33 @@ export default function DashboardPage() {
           <div className="h-[350px] w-full">
             {lineTrend.data.length ? (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={lineTrend.data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={lineTrend.data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    {lineTrend.series.map((series) => (
+                      <linearGradient key={`grad-${series.key}`} id={`grad-${series.key}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={series.color} stopOpacity={0.15} />
+                        <stop offset="95%" stopColor={series.color} stopOpacity={0.02} />
+                      </linearGradient>
+                    ))}
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
                   <XAxis dataKey="name" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 11 }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fill: "rgba(255,255,255,0.2)", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(value) => `${Math.round(Number(value) * 100)}%`} />
                   <Tooltip content={<CustomTooltip />} />
                   {lineTrend.series.map((series) => (
-                    <Line
+                    <Area
                       key={series.key}
                       type="monotone"
                       dataKey={series.key}
                       name={series.label}
                       stroke={series.color}
                       strokeWidth={series.strokeWidth}
+                      fill={`url(#grad-${series.key})`}
                       dot={{ r: series.dotRadius, fill: series.color, strokeWidth: 0 }}
                       activeDot={{ r: series.dotRadius + 2 }}
-                      strokeDasharray={series.dashArray}
-                      connectNulls
                     />
                   ))}
-                </LineChart>
+                </AreaChart>
               </ResponsiveContainer>
             ) : (
               <ChartEmpty message="Fairness trends will appear here after you run multiple audits." />

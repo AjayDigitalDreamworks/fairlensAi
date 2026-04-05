@@ -65,10 +65,11 @@ export default function AuditLogs({ audits = defaultRecentAudits }: { audits?: A
       <div className="space-y-3">
         {audits.length ? (
           audits.map((audit) => (
-            <div
-              key={audit.id}
-              className="card-glow group relative cursor-pointer overflow-hidden p-4 transition-all hover:border-primary/40"
-            >
+          <Link
+            key={audit.id}
+            to={`/reports?id=${audit.id}`}
+            className="card-glow group relative block cursor-pointer overflow-hidden p-4 transition-all hover:border-primary/40"
+          >
               <div className="flex flex-col items-start justify-between md:flex-row md:items-center">
                 <div className="relative z-10 flex-1 space-y-1 px-2">
                   <h3 className="font-bold tracking-wide text-white transition-colors group-hover:text-primary">
@@ -85,13 +86,15 @@ export default function AuditLogs({ audits = defaultRecentAudits }: { audits?: A
                   >
                     <div className="text-left leading-none">
                       <p className="mb-1 font-mono text-[9px] uppercase tracking-tighter text-white/40">Bias Score</p>
-                      <p className={`font-mono text-xl font-bold ${getBiasColor(audit.biasScore)}`}>{audit.biasScore}%</p>
+                      <p className={`font-mono text-xl font-bold ${getBiasColor(audit.biasScore)}`}>
+                        {typeof audit.biasScore === "number" ? audit.biasScore.toFixed(2) : audit.biasScore}%
+                      </p>
                     </div>
                   </div>
                   <ArrowRight className="h-5 w-5 translate-x-0 text-primary opacity-20 transition group-hover:translate-x-2 group-hover:opacity-100" />
                 </div>
               </div>
-            </div>
+            </Link>
           ))
         ) : (
           <div className="card-glow p-6 text-sm text-muted-foreground">

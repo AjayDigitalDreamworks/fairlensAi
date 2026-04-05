@@ -163,7 +163,7 @@ export default function DatasetAnalyzer() {
               </p>
             </div>
 
-            <div className="grid min-w-[260px] grid-cols-2 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               <HeroStat label="Auto-detection" value="ON" />
               <HeroStat label="Artifact mode" value="CSV + PDF" />
               <HeroStat label="Archive depth" value={String(history.length)} />

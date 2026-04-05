@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { Toaster } from "@/components/ui/sonner";
 import LandingPage from "@/app/page";
 import AnalyzerPage from "@/app/analyzer/page";
 import DashboardPage from "@/app/dashboard/page";
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <Toaster position="bottom-right" theme="dark" />
     </ThemeProvider>
   );
 }

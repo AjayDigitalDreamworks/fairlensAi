@@ -8,14 +8,20 @@ export class AnalysisRepository {
         'result.explainability': 0,
         'result.report_markdown': 0,
         'result.analysis_log': 0,
+        'result.corrected_csv': 0,
+        'result.sensitive_findings.group_metrics': 0,
+        'result.sensitive_findings.notes': 0,
+        'result.intersectional_findings.group_metrics': 0,
+        'result.intersectional_findings.notes': 0,
         'result.artifacts.corrected_csv': 0,
         'result.artifacts.fairness_report_markdown': 0,
-        'result.artifacts.pdf_report_path': 0
+        'result.artifacts.pdf_report_path': 0,
+        'artifactPaths': 0
       })
       .sort({ createdAt: -1 })
-      .limit(100)
+      .limit(25)
       .lean()
-      .maxTimeMS(5000);
+      .maxTimeMS(2500);
       return list;
     } catch (err) {
       console.error('Mongoose list error:', err.message);

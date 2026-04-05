@@ -120,15 +120,10 @@ export default function ExplainabilityPage() {
                 <BrainCircuit className="h-3.5 w-3.5" />
                 Model Explainability Engine
               </div>
-              <h1 className="text-3xl font-bold text-white">SHAP-Based Model Interpretability</h1>
-                Surfacing mathematically-grounded feature importance from the surrogate XGBoost model. SHAP (SHapley Additive exPlanations) provides the attribution layer, with an integrated AI Narrator providing optional natural language summaries of the model's decision drivers.
-            </div>
-
-            <div className="grid min-w-[280px] grid-cols-2 gap-3">
-              <MetricCard label="Active method" value={explainability?.method ?? explainability?.status ?? "pending"} icon={Sparkles} />
-              <MetricCard label="Top drivers" value={String(topFeatures.length)} icon={BarChart3} />
-              <MetricCard label="Available" value={(explainability?.methods_available ?? []).join(", ") || "none"} icon={CheckCircle2} />
-              <MetricCard label="Narrator status" value={geminiInterpretation?.status ?? "idle"} icon={MessageSquareText} />
+              <h1 className="text-3xl font-bold text-white">Model Interpretability</h1>
+              <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
+                Understand the key factors driving your model's decisions. Our interpretability engine identifies the most influential features, helping you detect hidden bias and improve model transparency through both mathematical attribution and natural language summaries.
+              </p>
             </div>
           </div>
         </section>
@@ -167,17 +162,12 @@ export default function ExplainabilityPage() {
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     <SummaryLine label="Dataset" value={analysis.input.fileName} />
                     <SummaryLine label="Domain" value={analysis.result.metadata.domain} />
-                    <SummaryLine label="Prediction source" value={analysis.result.metadata.prediction_auto_generated ? "XGBoost surrogate" : "Uploaded prediction column"} />
+                    <SummaryLine label="Prediction source" value={analysis.result.metadata.prediction_auto_generated ? "Internal Audit Engine" : "Uploaded Prediction data"} />
                     <SummaryLine label="Fairness score" value={`${formatMetric(analysis.result.fairness_summary.overall_fairness_score)}%`} />
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Winning setup</p>
-                  <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                    We combine SHAP-based model explainability with LLM-powered natural language interpretation to provide both mathematically grounded and human-readable insights.
-                  </p>
-                </div>
+
 
                 <div className="flex flex-wrap gap-3">
                   <Button
@@ -237,7 +227,7 @@ export default function ExplainabilityPage() {
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <EmptyState message="This analysis does not yet expose SHAP output. Install `shap`, rerun the audit, and the attribution chart will populate here." />
+                <EmptyState message="This analysis does not yet expose feature attribution data. Rerun the audit to see the drivers chart update here." />
               )}
             </div>
           </div>
@@ -247,7 +237,7 @@ export default function ExplainabilityPage() {
           <div className="card-glow p-6">
             <div className="mb-5 flex items-center gap-3">
               <Target className="h-5 w-5 text-emerald-400" />
-              <h2 className="text-xl font-semibold text-white">SHAP explanation feed</h2>
+              <h2 className="text-xl font-semibold text-white">Model impact feed</h2>
             </div>
             {shapSummary.length ? (
               <div className="space-y-3">
@@ -269,12 +259,12 @@ export default function ExplainabilityPage() {
           <div className="card-glow p-6">
             <div className="mb-5 flex items-center gap-3">
               <MessageSquareText className="h-5 w-5 text-cyan-400" />
-              <h2 className="text-xl font-semibold text-white">Audit narrative layer</h2>
+              <h2 className="text-xl font-semibold text-white">Audit narration</h2>
             </div>
             <div className="space-y-4">
               <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
                 <p className="text-sm leading-7 text-muted-foreground">
-                  Narrative summaries should not replace the mathematical SHAP data. Use them as a supplemental layer to translate technical attributions into plain language for reports.
+                  Narrative interpretations provide a supplemental layer to help translate technical model attributions into plain language for compliance reports.
                 </p>
               </div>
 
@@ -323,24 +313,7 @@ export default function ExplainabilityPage() {
           </div>
         </section>
 
-        <section className="card-glow p-6">
-          <div className="mb-6 flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Available methods</p>
-              <h2 className="mt-2 text-xl font-semibold text-white">Active Explainability Methods</h2>
-            </div>
-            <Button asChild variant="outline" className="border-white/10 text-white hover:bg-white/5">
-              <Link to="/metrics" className="inline-flex items-center gap-2">
-                Open fairness metrics
-              </Link>
-            </Button>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <MethodList title="Available methods" items={explainability?.methods_available ?? []} accent="emerald" />
-            <MethodList title="Unavailable methods" items={explainability?.methods_unavailable ?? []} accent="amber" />
-          </div>
-        </section>
       </div>
     </Layout>
   );

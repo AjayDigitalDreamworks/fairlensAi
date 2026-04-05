@@ -30,10 +30,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 type FilterMode = "all" | "high-risk" | "target-met" | "mitigated";
 
 export default function ReportsPage() {
+  const [searchParams] = useSearchParams();
+  const urlId = searchParams.get("id");
   const [analyses, setAnalyses] = useState<AnalysisPayload[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -56,7 +59,11 @@ export default function ReportsPage() {
         if (!mounted) return;
 
         const next = items.length ? items : cachedHistory;
-        const preferred = (cached ? next.find((item) => item.id === cached.id) : null) ?? next[0] ?? null;
+        const preferred =
+          (urlId ? next.find((item) => item.id === urlId) : null) ??
+          (cached ? next.find((item) => item.id === cached.id) : null) ??
+          next[0] ??
+          null;
 
         setAnalyses(next);
         setActiveId(preferred?.id ?? null);

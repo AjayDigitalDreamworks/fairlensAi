@@ -451,27 +451,12 @@ export default function MetricsPage() {
                   <RadarIcon className="h-5 w-5 text-emerald-400" />
                 </div>
 
-                <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-                  <div className="terminal-card p-5">
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Auto-detection notes</p>
-                    <div className="mt-4 space-y-3">
-                      {(analysis.result.detection?.notes ?? []).length ? (
-                        (analysis.result.detection?.notes ?? []).map((note) => (
-                          <p key={note} className="text-sm text-muted-foreground">
-                            - {note}
-                          </p>
-                        ))
-                      ) : (
-                        <p className="text-sm text-muted-foreground">No detection notes were emitted for this run.</p>
-                      )}
-                    </div>
-                  </div>
-
+                <div className="grid gap-6">
                   <div className="terminal-card p-5">
                     <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Top influential features</p>
                     <div className="mt-4 space-y-3">
-                      {(analysis.result.explainability?.top_features ?? []).slice(0, 5).length ? (
-                        (analysis.result.explainability?.top_features ?? []).slice(0, 5).map((feature) => (
+                      {(analysis.result.explainability?.top_features ?? []).slice(0, 10).length ? (
+                        (analysis.result.explainability?.top_features ?? []).slice(0, 10).map((feature) => (
                           <div key={feature.feature} className="flex items-start justify-between gap-4 border-b border-white/5 pb-3 last:border-b-0 last:pb-0">
                             <div>
                               <p className="font-medium text-white">{feature.feature}</p>
