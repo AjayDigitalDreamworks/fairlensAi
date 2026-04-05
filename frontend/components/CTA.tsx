@@ -23,7 +23,7 @@ export default function CTA() {
             </div>
             
             <h2 className="text-4xl sm:text-6xl font-bold font-sans text-white uppercase tracking-tight">
-              Ready to Restore <br /> <span className="text-emerald-400">Neural Parity?</span>
+              Ready to restore <br /> <span className="text-emerald-400">Fairness?</span>
             </h2>
             
             <p className="text-sm sm:text-lg text-white/50 font-mono uppercase tracking-widest max-w-2xl mx-auto font-black leading-relaxed">
@@ -42,7 +42,7 @@ export default function CTA() {
                 variant="outline"
                 className="border-white/10 text-white font-mono text-[10px] uppercase font-black px-12 py-8 rounded-none hover:bg-white/5 transition-all"
               >
-                Schedule Protocol Demo
+                Book a Demo
               </Button>
             </div>
           </div>

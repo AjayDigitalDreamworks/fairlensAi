@@ -51,9 +51,9 @@ export default function NeuralCore() {
  
         {/* Binary Overlay */}
         <div className="absolute top-10 left-10 text-[8px] font-mono text-primary/40 uppercase tracking-widest leading-none">
-           INIT://AI_PARITY_SYNC<br/>
-           LOAD://NEURAL_VECTORS<br/>
-           STATUS://EQUILIBRIUM_OK
+           INIT://AI_AUDIT_SYNC<br/>
+           LOAD://FAIRNESS_VECTORS<br/>
+           STATUS://READY
         </div>
  
         {/* Scanning Line */}

@@ -2,7 +2,7 @@
 
 import Layout from "@/components/Layout";
 import { Button } from "@/components/ui/button";
-import { generateGeminiExplanation, listAnalyses } from "@/lib/api";
+import { generateGeminiExplanation, listAnalyses, getAnalysis } from "@/lib/api";
 import { formatMetric } from "@/lib/analysis-insights";
 import { loadAnalysisHistory, loadLatestAnalysis, saveAnalysis } from "@/lib/analysis-store";
 import type { AnalysisPayload } from "@/types/analysis";
@@ -25,6 +25,7 @@ export default function ExplainabilityPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [fullAnalysis, setFullAnalysis] = useState<AnalysisPayload | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -75,9 +76,15 @@ export default function ExplainabilityPage() {
     }
   }, [analysisId, analyses]);
 
+  useEffect(() => {
+    if (analysisId) {
+      getAnalysis(analysisId).then(setFullAnalysis).catch(console.error);
+    }
+  }, [analysisId]);
+
   const analysis = useMemo(
-    () => analyses.find((item) => item.id === analysisId) ?? analyses[0] ?? null,
-    [analysisId, analyses],
+    () => (fullAnalysis?.id === analysisId ? fullAnalysis : analyses.find((item) => item.id === analysisId) ?? analyses[0] ?? null),
+    [analysisId, analyses, fullAnalysis],
   );
 
   const explainability = analysis?.result.explainability;
@@ -111,20 +118,17 @@ export default function ExplainabilityPage() {
             <div className="space-y-3">
               <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
                 <BrainCircuit className="h-3.5 w-3.5" />
-                Explainability Command Center
+                Model Explainability Engine
               </div>
-              <h1 className="text-3xl font-bold text-white">Model attribution, not proxy guesswork</h1>
-              <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
-                This page surfaces mathematically grounded feature influence from the surrogate XGBoost model. SHAP handles the real attribution layer,
-                and Gemini or any LLM can be added later only as a language layer for human-readable narration.
-              </p>
+              <h1 className="text-3xl font-bold text-white">SHAP-Based Model Interpretability</h1>
+                Surfacing mathematically-grounded feature importance from the surrogate XGBoost model. SHAP (SHapley Additive exPlanations) provides the attribution layer, with an integrated AI Narrator providing optional natural language summaries of the model's decision drivers.
             </div>
 
             <div className="grid min-w-[280px] grid-cols-2 gap-3">
               <MetricCard label="Active method" value={explainability?.method ?? explainability?.status ?? "pending"} icon={Sparkles} />
               <MetricCard label="Top drivers" value={String(topFeatures.length)} icon={BarChart3} />
               <MetricCard label="Available" value={(explainability?.methods_available ?? []).join(", ") || "none"} icon={CheckCircle2} />
-              <MetricCard label="Gemini status" value={geminiInterpretation?.status ?? "idle"} icon={MessageSquareText} />
+              <MetricCard label="Narrator status" value={geminiInterpretation?.status ?? "idle"} icon={MessageSquareText} />
             </div>
           </div>
         </section>
@@ -196,7 +200,7 @@ export default function ExplainabilityPage() {
                     className="bg-emerald-500 font-semibold text-black hover:bg-emerald-400"
                   >
                     {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageSquareText className="mr-2 h-4 w-4" />}
-                    {generating ? "Generating with Gemini..." : "Generate Gemini interpretation"}
+                    {generating ? "Generating Narrative..." : "Generate Narrative interpretation"}
                   </Button>
                   <div className="inline-flex items-center border border-white/10 bg-black/20 px-4 py-3 text-xs uppercase tracking-[0.25em] text-muted-foreground">
                     Backend key required
@@ -265,18 +269,18 @@ export default function ExplainabilityPage() {
           <div className="card-glow p-6">
             <div className="mb-5 flex items-center gap-3">
               <MessageSquareText className="h-5 w-5 text-cyan-400" />
-              <h2 className="text-xl font-semibold text-white">Natural language layer</h2>
+              <h2 className="text-xl font-semibold text-white">Audit narrative layer</h2>
             </div>
             <div className="space-y-4">
               <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
                 <p className="text-sm leading-7 text-muted-foreground">
-                  Gemini should not replace SHAP. Use it after SHAP to translate real attributions into plain language for reports, executive summaries, or judge-friendly walkthroughs.
+                  Narrative summaries should not replace the mathematical SHAP data. Use them as a supplemental layer to translate technical attributions into plain language for reports.
                 </p>
               </div>
 
               {geminiInterpretation?.text ? (
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Gemini output</p>
+                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narrator output</p>
                   <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{geminiInterpretation.text}</div>
                   <p className="mt-4 text-[11px] text-muted-foreground/80">
                     Model: {geminiInterpretation.model || "unknown"}
@@ -285,9 +289,9 @@ export default function ExplainabilityPage() {
                 </div>
               ) : (
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Gemini status</p>
+                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narrator status</p>
                   <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                    {geminiInterpretation?.note || "No Gemini narration has been generated for this analysis yet."}
+                    {geminiInterpretation?.note || "No Narrator interpretation has been generated for this analysis yet."}
                   </p>
                 </div>
               )}
@@ -303,11 +307,11 @@ export default function ExplainabilityPage() {
                   />
                 ))
               ) : (
-                <EmptyState message="Once SHAP local summaries are available, this panel can be fed into Gemini prompts for natural-language explanations." />
+                <EmptyState message="Local SHAP explanations will appear here once available. These can be used to generate natural-language audit summaries." />
               )}
 
               <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Prompt pattern</p>
+                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narrative Logic</p>
                 <pre className="mt-3 overflow-x-auto whitespace-pre-wrap font-mono text-xs leading-6 text-muted-foreground">
 {`Explain in simple terms:
 - income has high positive impact on approval
@@ -322,8 +326,8 @@ export default function ExplainabilityPage() {
         <section className="card-glow p-6">
           <div className="mb-6 flex items-center justify-between gap-4">
             <div>
-              <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Methods inventory</p>
-              <h2 className="mt-2 text-xl font-semibold text-white">What is active in this run</h2>
+              <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Available methods</p>
+              <h2 className="mt-2 text-xl font-semibold text-white">Active Explainability Methods</h2>
             </div>
             <Button asChild variant="outline" className="border-white/10 text-white hover:bg-white/5">
               <Link to="/metrics" className="inline-flex items-center gap-2">

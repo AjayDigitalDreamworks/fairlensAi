@@ -61,6 +61,14 @@ export async function deleteAnalysis(analysisId: string): Promise<{ id: string }
   return response.json();
 }
 
+export async function getAnalysis(analysisId: string): Promise<AnalysisPayload> {
+  const response = await fetch(`${API_URL}/analyses/${analysisId}`);
+  if (!response.ok) {
+    return parseError(response, "Failed to load analysis");
+  }
+  return response.json();
+}
+
 export function getCorrectedCsvUrl(analysisId: string) {
   return `${API_URL}/analyses/${analysisId}/corrected.csv`;
 }

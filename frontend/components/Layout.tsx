@@ -45,7 +45,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="h-8 w-8 flex items-center justify-center text-primary font-bold text-sm border border-primary/50 bg-primary/10 shadow-[0_0_15px_rgba(var(--theme-glow),0.3)]" style={{ borderRadius: 'var(--theme-border-radius)' }}>
               F
             </div>
-            <span className="text-lg font-bold glow-text">FairAI</span>
+            <span className="text-lg font-bold glow-text">FairLens AI</span>
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -107,10 +107,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <ThemeToggle />
               <div className="text-sm text-muted-foreground hidden sm:block">
                 {pathname === "/analyzer"
-                  ? "Automated audit queue"
+                  ? "Upload & analyze datasets"
                   : pathname === "/explainability"
-                    ? "Model attribution hub"
-                    : "Fairness operations hub"}
+                    ? "Model feature importance"
+                    : pathname === "/metrics"
+                      ? "Detailed fairness metrics"
+                      : pathname === "/mitigation"
+                        ? "Bias correction strategies"
+                        : pathname === "/reports"
+                          ? "Audit history & downloads"
+                          : pathname === "/settings"
+                            ? "Account settings"
+                            : "Fairness audit dashboard"}
               </div>
               <div className="h-8 w-8 border border-primary/50 bg-primary/10 flex items-center justify-center text-primary font-bold text-xs" style={{ borderRadius: 'var(--theme-border-radius)' }}>
                 U

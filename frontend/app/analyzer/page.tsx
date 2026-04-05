@@ -33,14 +33,14 @@ import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
 const liveStages = [
-  "Dataset payload received",
-  "Schema signature extracted",
-  "Domain fingerprint resolved",
-  "Target and sensitive fields detected",
-  "Surrogate prediction lane prepared",
-  "Fairness core evaluating group drift",
-  "Proxy-risk scan assembling evidence",
-  "Correction and report artifacts rendering",
+  "Dataset received",
+  "Schema extracted",
+  "Domain identified",
+  "Sensitive fields detected",
+  "Prediction model prepared",
+  "Fairness evaluation running",
+  "Proxy-risk scan in progress",
+  "Generating corrected output and report",
 ];
 
 export default function DatasetAnalyzer() {
@@ -88,10 +88,10 @@ export default function DatasetAnalyzer() {
       title: stage,
       detail:
         index < liveIndex
-          ? `${stage} completed with no blocking issue.`
+           ? `${stage} completed.`
           : index === liveIndex
-            ? `${stage} currently running in the analysis theater.`
-            : `${stage} is queued in the fairness pipeline.`,
+            ? `${stage} in progress...`
+            : `${stage} queued.`,
       status: index < liveIndex ? "completed" : index === liveIndex ? "running" : "pending",
     }));
   }, [analysis, liveIndex, loading]);
@@ -155,12 +155,11 @@ export default function DatasetAnalyzer() {
             <div className="space-y-3">
               <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
                 <Clapperboard className="h-3.5 w-3.5" />
-                Analyzer Control Room
+                Audit Pipeline
               </div>
-              <h1 className="text-3xl font-bold text-white">Live Feed Analysis Studio</h1>
+              <h1 className="text-3xl font-bold text-white">Dataset Analyzer</h1>
               <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
-                Dataset upload se lekar corrected fairness output tak poora pipeline cinematic control-room style mein dikh raha hai.
-                FairLens target, prediction, sensitive columns, fairness audit, and correction preview ko automatic lane mein process karta hai.
+                Upload a dataset to run a complete fairness audit. FairLens will automatically detect sensitive columns, evaluate bias metrics, and generate a corrected output.
               </p>
             </div>
 
@@ -168,7 +167,7 @@ export default function DatasetAnalyzer() {
               <HeroStat label="Auto-detection" value="ON" />
               <HeroStat label="Artifact mode" value="CSV + PDF" />
               <HeroStat label="Archive depth" value={String(history.length)} />
-              <HeroStat label="Pipeline state" value={loading ? "LIVE" : "IDLE"} />
+              <HeroStat label="Active pipeline" value={loading ? "RUNNING" : "STANDBY"} />
             </div>
           </div>
         </section>
@@ -177,7 +176,7 @@ export default function DatasetAnalyzer() {
           <section className="command-panel space-y-6 p-8">
             <div className="flex items-center gap-3">
               <Upload className="h-5 w-5 text-emerald-400" />
-              <h2 className="text-xl font-semibold text-white">Mission Input</h2>
+              <h2 className="text-xl font-semibold text-white">Upload Dataset</h2>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -206,27 +205,27 @@ export default function DatasetAnalyzer() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-mono uppercase tracking-[0.3em] text-emerald-300">Gemini API Key</label>
+                <label className="text-xs font-mono uppercase tracking-[0.3em] text-emerald-300">Narrative API Key</label>
                 <input
                   type="password"
                   value={geminiApiKey}
                   onChange={(event) => setGeminiApiKey(event.target.value)}
-                  placeholder="Optional: used for plain-language SHAP narration"
+                  placeholder="Optional: used for plain-language audit narration"
                   className="w-full border border-white/10 bg-black/30 px-4 py-3 text-sm text-white"
                 />
               </div>
 
               <div className="terminal-card p-4">
-                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Automation layer</p>
+                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">How it works</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Target, prediction, sensitive fields, fairness metrics, TreeSHAP explanations, correction output, and report packaging run automatically.
+                  FairLens automatically detects target, prediction, and sensitive columns. It then calculates fairness metrics, generates SHAP explanations, applies corrections, and creates a full audit report.
                 </p>
               </div>
 
               <div className="terminal-card p-4 md:col-span-2">
-                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narration layer</p>
+                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narrative API (Optional)</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  If you paste a Gemini key here, FairLens sends it only with this analysis request so the ML service can convert SHAP numbers into plain-language audit notes.
+                  If you provide a Narrative API key above, it will be used to generate plain-language audit summaries alongside the technical metrics.
                 </p>
               </div>
             </div>
@@ -241,11 +240,11 @@ export default function DatasetAnalyzer() {
             <div className="flex flex-wrap gap-3">
               <Button onClick={onSubmit} disabled={loading} className="bg-emerald-500 font-semibold text-black hover:bg-emerald-400">
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                {loading ? "Running FairLens analysis..." : "Launch FairLens Analysis"}
+                {loading ? "Running Audit..." : "Run Fairness Audit"}
               </Button>
               <div className="inline-flex items-center gap-2 border border-white/10 bg-black/20 px-4 py-3 text-xs uppercase tracking-[0.25em] text-muted-foreground">
                 <Activity className="h-4 w-4 text-emerald-400" />
-                {loading ? "Pipeline active" : "Ready for upload"}
+                {loading ? "Audit in progress" : "Ready"}
               </div>
             </div>
 
@@ -296,7 +295,7 @@ export default function DatasetAnalyzer() {
           <section className="command-panel p-8">
             <div className="mb-5 flex items-center gap-3">
               <Film className="h-5 w-5 text-emerald-400" />
-              <h2 className="text-xl font-semibold text-white">Live Feed Analysis</h2>
+              <h2 className="text-xl font-semibold text-white">Pipeline Progress</h2>
             </div>
 
             <div className="movie-feed">
@@ -333,14 +332,14 @@ export default function DatasetAnalyzer() {
             </div>
 
             <div className="terminal-card space-y-4 p-5">
-              <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">What this run covers</p>
-              <Checklist text="CSV/XLS/XLSX upload with auto parsing" />
-              <Checklist text="Domain selection or auto domain resolution" />
-              <Checklist text="Automatic target and sensitive-column detection" />
-              <Checklist text="Prediction generation when prediction column is missing" />
-              <Checklist text="Fairness score, disparate impact, accuracy, and group metrics" />
-              <Checklist text="Proxy-risk feature detection and recommendations" />
-              <Checklist text="Correction output shown directly after the run" />
+               <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">What this audit covers</p>
+               <Checklist text="CSV / XLS / XLSX file upload with automatic parsing" />
+               <Checklist text="Domain detection or manual domain selection" />
+               <Checklist text="Automatic target and sensitive column detection" />
+               <Checklist text="Prediction generation when no prediction column exists" />
+               <Checklist text="Fairness score, disparate impact, accuracy, and group metrics" />
+               <Checklist text="Proxy-risk detection and remediation recommendations" />
+               <Checklist text="Corrected dataset output after the audit completes" />
             </div>
           </div>
         </section>
@@ -381,7 +380,7 @@ export default function DatasetAnalyzer() {
                 </div>
 
                 <div className="terminal-card p-5">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Executive readout</p>
+                   <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Executive summary</p>
                   <p className="mt-3 text-sm leading-7 text-muted-foreground">{analysis.result.explanation.executive_summary}</p>
                 </div>
 
@@ -390,18 +389,18 @@ export default function DatasetAnalyzer() {
                     title="Detected setup"
                     items={[
                       `Domain: ${analysis.result.metadata.domain}`,
-                      `Target: ${analysis.result.metadata.target_column ?? "auto-generated"}`,
-                      `Prediction: ${analysis.result.metadata.prediction_column ?? "auto-generated"}`,
+                      `Target column: ${analysis.result.metadata.target_column ?? "auto-generated"}`,
+                      `Prediction column: ${analysis.result.metadata.prediction_column ?? "auto-generated"}`,
                       `Sensitive columns: ${analysis.result.metadata.sensitive_columns.join(", ")}`,
                     ]}
                   />
                   <SignalPanel
-                    title="Release view"
+                    title="Analysis summary"
                     items={[
                       `Rows analyzed: ${analysis.result.metadata.rows}`,
                       `Risk level: ${analysis.result.fairness_summary.risk_level}`,
-                      `Worst original slice: ${worstFinding?.sensitive_column ?? "none"}`,
-                      `Worst corrected slice: ${correctedWorst?.sensitive_column ?? "not generated"}`,
+                      `Worst original attribute: ${worstFinding?.sensitive_column ?? "none"}`,
+                      `Worst corrected attribute: ${correctedWorst?.sensitive_column ?? "not generated"}`,
                     ]}
                   />
                 </div>
@@ -410,7 +409,7 @@ export default function DatasetAnalyzer() {
               <section className="command-panel space-y-6 p-8">
                 <div className="flex items-center gap-3">
                   <AlertTriangle className="h-5 w-5 text-emerald-400" />
-                  <h2 className="text-xl font-semibold text-white">Risk Focus</h2>
+                  <h2 className="text-xl font-semibold text-white">Audit Notes</h2>
                 </div>
                 <FindingCard title="Original high-risk finding" finding={worstFinding} />
                 <FindingCard title="Corrected high-risk finding" finding={correctedWorst} />

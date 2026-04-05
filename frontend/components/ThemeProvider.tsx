@@ -23,7 +23,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem("fairai-theme") as ThemeName | null;
+    const stored = localStorage.getItem("fairlens-theme") as ThemeName | null;
     if (stored === "emerald" || stored === "sapphire") {
       setThemeState(stored);
     }
@@ -34,7 +34,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (!mounted) return;
     const root = document.documentElement;
     root.setAttribute("data-theme", theme);
-    localStorage.setItem("fairai-theme", theme);
+    localStorage.setItem("fairlens-theme", theme);
   }, [theme, mounted]);
 
   const toggleTheme = useCallback(() => {

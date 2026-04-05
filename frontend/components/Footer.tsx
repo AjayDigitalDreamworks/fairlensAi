@@ -4,27 +4,27 @@ import { Github, Twitter, Linkedin, MessageCircle } from "lucide-react";
 
 const footerLinks = [
   {
-    title: "Intelligence Hub",
+    title: "Resources",
     links: [
       { name: "Core Features", href: "#" },
-      { name: "Node Pricing", href: "#" },
-      { name: "Neural Docs", href: "#" },
+      { name: "Pricing", href: "#" },
+      { name: "Documentation", href: "#" },
     ],
   },
   {
-    title: "Operational Units",
+    title: "Company",
     links: [
-      { name: "About Protocol", href: "#" },
-      { name: "Signal Blog", href: "#" },
-      { name: "Contact Sync", href: "#" },
+      { name: "About Us", href: "#" },
+      { name: "Blog", href: "#" },
+      { name: "Contact", href: "#" },
     ],
   },
   {
-    title: "Legal Protocols",
+    title: "Legal",
     links: [
-      { name: "Privacy Matrix", href: "#" },
+      { name: "Privacy Policy", href: "#" },
       { name: "Terms of Use", href: "#" },
-      { name: "Security Audit", href: "#" },
+      { name: "Security", href: "#" },
     ],
   },
 ];
@@ -40,10 +40,10 @@ export default function Footer() {
               <div className="h-10 w-10 flex items-center justify-center text-emerald-400 font-bold text-lg border border-emerald-500/30 bg-emerald-500/5 group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(16,185,129,0.2)]">
                 F
               </div>
-              <span className="font-bold text-white text-2xl font-sans tracking-tight glow-text group-hover:text-emerald-400 transition-colors">FairAI</span>
+              <span className="font-bold text-white text-2xl font-sans tracking-tight glow-text group-hover:text-emerald-400 transition-colors">FairLens AI</span>
             </div>
             <p className="text-xs font-mono font-black text-muted-foreground uppercase tracking-[0.3em] opacity-60 leading-relaxed max-w-xs">
-              Universal DevOps for AI Fairness. Neural Core Engine established to find and fix structural bias across global data streams.
+              Automated auditing for AI fairness. Designed to find and fix structural bias across your data.
             </p>
             <div className="flex gap-4">
                {[Twitter, Linkedin, Github, MessageCircle].map((Icon, idx) => (
@@ -74,7 +74,7 @@ export default function Footer() {
         </div>
         
         <div className="border-t border-white/5 pt-10 flex flex-col sm:flex-row justify-between items-center text-[10px] font-mono text-muted-foreground uppercase tracking-widest opacity-60">
-          <p>&copy; 2024 FairAI Core. All operational protocols active.</p>
+          <p>&copy; 2024 FairLens AI. All rights reserved.</p>
           <div className="flex gap-8 mt-6 sm:mt-0">
             <span className="flex items-center gap-2">
                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_#34d399]"></div>

@@ -6,9 +6,18 @@ import fs from 'fs';
 import path from 'path';
 import { env } from './config/env.js';
 import routes from './routes/analysisRoutes.js';
+import mongoose from 'mongoose';
 
 const app = express();
 fs.mkdirSync(env.dataDir, { recursive: true });
+
+if (env.mongoUri) {
+  mongoose.connect(env.mongoUri)
+    .then(() => console.log('Connected to MongoDB'))
+    .catch((err) => console.error('MongoDB connection error:', err));
+} else {
+  console.warn('MONGO_URI is not set in environment. Running without MongoDB connection.');
+}
 
 app.use(cors({ origin: env.corsOrigin.split(',').map((value) => value.trim()) }));
 app.use(helmet());

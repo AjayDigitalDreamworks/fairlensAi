@@ -311,12 +311,11 @@ export default function MetricsPage() {
           <div className="space-y-3">
             <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
               <BarChart3 className="h-3.5 w-3.5" />
-              Fairness Metrics Matrix
+              Fairness Metrics
             </div>
-            <h1 className="text-3xl font-bold text-white">Model Fairness Diagnostics</h1>
+            <h1 className="text-3xl font-bold text-white">Fairness Metrics</h1>
             <p className="max-w-4xl text-sm leading-7 text-muted-foreground">
-              FairLens ke ML pipeline se aane wale fairness score, corrected fairness, disparate impact, demographic parity gap,
-              TPR/FPR/FNR, accuracy spread, aur group-level metrics yahan model-aware metrics console mein dikh rahe hain.
+              Detailed fairness scores, disparate impact, demographic parity, accuracy spread, and group-level metrics for each sensitive attribute — before and after bias correction.
             </p>
           </div>
         </section>
@@ -343,7 +342,7 @@ export default function MetricsPage() {
                 <div className="space-y-5">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                      <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Active metrics source</p>
+                      <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Selected analysis</p>
                       <h2 className="mt-2 text-2xl font-semibold text-white">{analysis.input.fileName}</h2>
                       <p className="mt-2 text-sm text-muted-foreground">
                         {toTitleCase(analysis.result.metadata.domain)} domain | {analysis.result.metadata.rows.toLocaleString()} rows |{" "}
@@ -374,7 +373,7 @@ export default function MetricsPage() {
                   </div>
 
                   <div className="terminal-card p-5">
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Metric briefing</p>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Executive summary</p>
                     <p className="mt-3 text-sm leading-7 text-muted-foreground">
                       {analysis.result.explanation.executive_summary}
                     </p>
@@ -427,8 +426,8 @@ export default function MetricsPage() {
               <section className="command-panel p-8">
                 <div className="mb-6 flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Model telemetry</p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Audit engine configuration</h2>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Configuration</p>
+                    <h2 className="mt-2 text-xl font-semibold text-white">Analysis Configuration</h2>
                   </div>
                   <Gauge className="h-5 w-5 text-emerald-400" />
                 </div>
@@ -446,15 +445,15 @@ export default function MetricsPage() {
               <section className="command-panel p-8">
                 <div className="mb-6 flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Explainability watchlist</p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Detection notes and model drivers</h2>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Model insights</p>
+                    <h2 className="mt-2 text-xl font-semibold text-white">Detection Notes & Key Features</h2>
                   </div>
                   <RadarIcon className="h-5 w-5 text-emerald-400" />
                 </div>
 
                 <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
                   <div className="terminal-card p-5">
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Pipeline notes</p>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Auto-detection notes</p>
                     <div className="mt-4 space-y-3">
                       {(analysis.result.detection?.notes ?? []).length ? (
                         (analysis.result.detection?.notes ?? []).map((note) => (
@@ -469,7 +468,7 @@ export default function MetricsPage() {
                   </div>
 
                   <div className="terminal-card p-5">
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Top explainability features</p>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Top influential features</p>
                     <div className="mt-4 space-y-3">
                       {(analysis.result.explainability?.top_features ?? []).slice(0, 5).length ? (
                         (analysis.result.explainability?.top_features ?? []).slice(0, 5).map((feature) => (
@@ -497,8 +496,8 @@ export default function MetricsPage() {
             <section className="command-panel p-8">
               <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Slice explorer</p>
-                  <h2 className="mt-2 text-xl font-semibold text-white">Sensitive attribute channels</h2>
+                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Attribute explorer</p>
+                  <h2 className="mt-2 text-xl font-semibold text-white">Sensitive Attributes</h2>
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {slices.map((slice) => (
@@ -541,7 +540,7 @@ export default function MetricsPage() {
                 <div className="card-glow rounded-xl p-6">
                   <div className="mb-6 flex items-center justify-between">
                     <div>
-                      <h3 className="text-xs font-bold uppercase tracking-widest text-white opacity-80">Metric Envelope</h3>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-white opacity-80">Metric Comparison</h3>
                       <p className="mt-1 text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">
                         {activeSlice ? toTitleCase(activeSlice.key) : "No slice selected"}
                       </p>
@@ -574,7 +573,7 @@ export default function MetricsPage() {
                   <div>
                     <h2 className="text-xl font-semibold text-white">Group Metric Comparison</h2>
                     <p className="mt-1 text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">
-                      Selection and accuracy telemetry by group
+                      Selection rate and accuracy by group
                     </p>
                   </div>
                   <Gauge className="h-5 w-5 text-emerald-400" />
@@ -605,7 +604,7 @@ export default function MetricsPage() {
                   <>
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Selected slice</p>
+                        <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Selected attribute</p>
                         <h2 className="mt-2 text-2xl font-semibold text-white">{toTitleCase(activeSlice.key)}</h2>
                       </div>
                       <span className={`border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.2em] ${riskTone(activeSlice.original.risk_level)}`}>
@@ -633,7 +632,7 @@ export default function MetricsPage() {
                     </div>
 
                     <div className="terminal-card p-5">
-                      <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Metric notes</p>
+                      <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Analysis notes</p>
                       <div className="mt-4 space-y-3">
                         {activeSlice.original.notes.length ? (
                           activeSlice.original.notes.map((note) => (

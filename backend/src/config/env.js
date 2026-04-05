@@ -11,4 +11,5 @@ export const env = {
   dataDir: process.env.DATA_DIR || path.join(process.cwd(), 'src', 'data'),
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  mongoUri: process.env.MONGO_URI || '',
 };

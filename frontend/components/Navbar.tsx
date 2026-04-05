@@ -13,17 +13,14 @@ export default function Navbar() {
             <div className="h-8 w-8 flex items-center justify-center text-primary font-bold text-sm border border-primary/50 bg-primary/10 shadow-[0_0_15px_rgba(var(--theme-glow),0.3)]" style={{ borderRadius: 'var(--theme-border-radius)' }}>
               F
             </div>
-            <span className="text-xl font-bold glow-text">FairAI</span>
+            <span className="text-xl font-bold glow-text">FairLens AI</span>
           </div>
           <div className="hidden md:flex items-center gap-8">
-            <a href="#features" className="text-sm text-muted-foreground hover:text-primary transition-colors uppercase tracking-widest font-mono text-[10px] font-bold">
-              Features
-            </a>
             <a href="#how-it-works" className="text-sm text-muted-foreground hover:text-primary transition-colors uppercase tracking-widest font-mono text-[10px] font-bold">
-              Protocol
+              How it works
             </a>
             <a href="#benefits" className="text-sm text-muted-foreground hover:text-primary transition-colors uppercase tracking-widest font-mono text-[10px] font-bold">
-              Intelligence
+              Benefits
             </a>
           </div>
           <div className="flex items-center gap-3">

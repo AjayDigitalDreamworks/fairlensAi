@@ -5,29 +5,29 @@ const actions = [
   {
     href: "/analyzer",
     icon: TrendingUp,
-    title: "Launch FairLens",
-    description: "Upload and scan for hidden demographic drift",
+    title: "Run Audit",
+    description: "Upload a dataset and scan for bias",
     accent: "primary"
   },
   {
     href: "/metrics",
     icon: CheckCircle,
-    title: "Verify Metrics",
-    description: "Evaluate real-time model parity scores",
+    title: "View Metrics",
+    description: "Detailed fairness scores per attribute",
     accent: "secondary"
   },
   {
     href: "/explainability",
     icon: BrainCircuit,
-    title: "Inspect SHAP",
-    description: "Open model attribution and explanation signals",
+    title: "Explainability",
+    description: "SHAP-based feature importance analysis",
     accent: "primary"
   },
   {
     href: "/mitigation",
     icon: AlertTriangle,
-    title: "Fix Bias",
-    description: "Apply automated structural mitigation",
+    title: "Mitigation",
+    description: "Preview bias correction strategies",
     accent: "accent"
   }
 ];
@@ -64,8 +64,8 @@ export default function QuickActions() {
                </div>
                <ArrowRight className={`h-5 w-5 ${style.icon} opacity-0 group-hover:opacity-100 transition translate-x-4 group-hover:translate-x-0`} />
              </div>
-             <h3 className="font-bold text-white mb-1 uppercase tracking-wider text-sm relative z-10">{action.title}</h3>
-             <p className="text-xs text-muted-foreground font-mono opacity-60 relative z-10">{action.description}</p>
+             <h3 className="font-bold text-white mb-1 text-sm relative z-10">{action.title}</h3>
+             <p className="text-xs text-muted-foreground relative z-10">{action.description}</p>
              <div className={`absolute bottom-0 right-0 w-24 h-24 blur-3xl -z-0 ${style.glow}`}></div>
            </Link>
         );

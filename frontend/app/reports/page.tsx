@@ -141,10 +141,10 @@ export default function ReportsPage() {
       : 0;
 
     return [
-      { label: "Total Reports Cache", value: String(analyses.length).padStart(2, "0") },
-      { label: "Active Cycles (Monthly)", value: String(monthlyCount).padStart(2, "0") },
-      { label: "Avg Bias Index", value: `${formatMetric(averageBias)}%` },
-      { label: "Compliance Fidelity", value: `${formatMetric(averageCompliance)}%` },
+      { label: "Total Reports", value: String(analyses.length).padStart(2, "0") },
+      { label: "This Month", value: String(monthlyCount).padStart(2, "0") },
+      { label: "Avg Bias Score", value: `${formatMetric(averageBias)}%` },
+      { label: "Avg Compliance", value: `${formatMetric(averageCompliance)}%` },
     ];
   }, [analyses]);
 
@@ -249,7 +249,7 @@ export default function ReportsPage() {
 
     downloadBlob(
       [header, ...lines].map((row) => row.map(csvEscape).join(",")).join("\n"),
-      `fairai-report-context-${new Date().toISOString().slice(0, 10)}.csv`,
+      `fairlens-audit-report-${new Date().toISOString().slice(0, 10)}.csv`,
       "text/csv;charset=utf-8",
     );
   }
@@ -264,8 +264,8 @@ export default function ReportsPage() {
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
               <h1 className="mb-2 font-sans text-3xl font-bold tracking-tight text-white">Audit History & Reports</h1>
-              <p className="text-xs font-mono uppercase tracking-[0.3em] text-muted-foreground opacity-60">
-                Access, download, and manage structural audit archives.
+              <p className="text-sm text-muted-foreground">
+                Access, download, and manage your audit report archive.
               </p>
             </div>
 
@@ -315,10 +315,10 @@ export default function ReportsPage() {
               <Search className="absolute left-4 top-3.5 h-4 w-4 text-emerald-500 transition-colors group-focus-within:text-emerald-400" />
               <input
                 type="text"
-                placeholder="PROMPT: Search report identification strings..."
+                placeholder="Search by filename, domain, or ID..."
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                className="w-full rounded-none border border-white/5 bg-black/40 py-3 pl-12 pr-4 font-mono text-xs uppercase tracking-widest text-white placeholder:text-muted-foreground focus:border-emerald-500/50 focus:outline-none"
+                className="w-full rounded-none border border-white/5 bg-black/40 py-3 pl-12 pr-4 text-sm text-white placeholder:text-muted-foreground focus:border-emerald-500/50 focus:outline-none"
               />
             </div>
 
@@ -357,14 +357,14 @@ export default function ReportsPage() {
                         className="h-4 w-4 cursor-pointer accent-emerald-500"
                         aria-label="Select all visible reports"
                       />
-                      <span>Identification String</span>
+                      <span>File Name</span>
                     </div>
                   </th>
-                  <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Protocol Type</th>
-                  <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Timestamp</th>
-                  <th className="px-6 py-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Bias Signal</th>
-                  <th className="px-6 py-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Density</th>
-                  <th className="px-6 py-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Operations</th>
+                  <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Type</th>
+                  <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Date</th>
+                  <th className="px-6 py-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Bias Score</th>
+                  <th className="px-6 py-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Rows</th>
+                  <th className="px-6 py-5 text-center text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -465,7 +465,7 @@ export default function ReportsPage() {
                 ) : (
                   <tr>
                     <td colSpan={6} className="px-6 py-10 text-center text-sm text-muted-foreground">
-                      No audit reports matched the current search and filter matrix.
+                      No reports match your current search or filter.
                     </td>
                   </tr>
                 )}
@@ -479,7 +479,7 @@ export default function ReportsPage() {
           <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
             <h2 className="flex items-center gap-3 text-sm font-bold uppercase tracking-[0.3em] text-white">
               <ClipboardList className="h-5 w-5 text-emerald-400" />
-              Executive Log Intelligence Preview
+              Report Summary
             </h2>
             {activeAnalysis && (
               <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono uppercase tracking-[0.24em] text-muted-foreground">
@@ -495,7 +495,7 @@ export default function ReportsPage() {
             <div className="space-y-4 border border-white/5 bg-black/40 p-6 transition-all hover:border-emerald-500/20">
               <h3 className="flex items-center gap-2 font-bold uppercase tracking-widest text-white">
                 <FileText className="h-3 w-3 text-emerald-500" />
-                Operational Executive Summary
+                Executive Summary
               </h3>
               <p className="text-muted-foreground opacity-80">{activeSummary}</p>
             </div>
@@ -503,17 +503,17 @@ export default function ReportsPage() {
             <div className="space-y-4 border border-cyan-500/20 bg-cyan-500/5 p-6 transition-all hover:border-cyan-400/30">
               <h3 className="flex items-center gap-2 font-bold uppercase tracking-widest text-white">
                 <Eye className="h-3 w-3 text-cyan-300" />
-                Gemini Interpretation
+                Narrative Interpretation
               </h3>
               <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground opacity-90">
-                {activeGeminiSummary || "Generate Gemini interpretation from the Explainability page to see the plain-English dataset explanation here."}
+                {activeGeminiSummary || "Generate a narrative interpretation from the Explainability page to see the plain-language audit explanation here."}
               </p>
             </div>
 
             <div className="space-y-4 border border-white/5 bg-black/40 p-6 transition-all hover:border-emerald-500/20">
               <h3 className="flex items-center gap-2 font-bold uppercase tracking-widest text-white">
                 <ShieldCheck className="h-3 w-3 text-emerald-500" />
-                Neural Anomaly Findings
+                Key Findings
               </h3>
               <ul className="space-y-3">
                 {anomalyFindings.length ? (
@@ -532,7 +532,7 @@ export default function ReportsPage() {
             <div className="space-y-4 border border-white/5 bg-black/40 p-6 transition-all hover:border-emerald-500/20">
               <h3 className="flex items-center gap-2 font-bold uppercase tracking-widest text-white">
                 <RefreshCw className="h-3 w-3 text-emerald-500" />
-                Corrective Protocols
+                Recommendations
               </h3>
               <ul className="space-y-3">
                 {correctiveProtocols.length ? (
@@ -543,7 +543,7 @@ export default function ReportsPage() {
                     </li>
                   ))
                 ) : (
-                  <li className="text-muted-foreground opacity-80">No corrective protocols are available for this report.</li>
+                  <li className="text-muted-foreground opacity-80">No recommendations available for this report.</li>
                 )}
               </ul>
             </div>
@@ -557,7 +557,7 @@ export default function ReportsPage() {
             disabled={!filteredReports.length}
           >
             <Download className="mr-3 h-4 w-4" />
-            Download Global Archive
+            Download All Reports
           </Button>
           <Button
             variant="outline"
@@ -575,7 +575,7 @@ export default function ReportsPage() {
             disabled={!selectedReports.length || bulkDeleting}
           >
             <Trash className="mr-3 h-4 w-4" />
-            {bulkDeleting ? "Terminating Archives..." : `Terminate Selected Archives${selectedReports.length ? ` (${selectedReports.length})` : ""}`}
+            {bulkDeleting ? "Deleting..." : `Delete Selected${selectedReports.length ? ` (${selectedReports.length})` : ""}`}
           </Button>
         </div>
       </div>

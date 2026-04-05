@@ -45,13 +45,13 @@ export async function createAnalysis({ file, body }) {
   };
   await enrichGeminiNarration(analysis);
 
-  repo.save(analysis);
+  await repo.save(analysis);
   fs.unlinkSync(file.path);
   return analysis;
 }
 
 export async function createMitigationPreview({ analysisId, strategy }) {
-  const analysis = repo.getById(analysisId);
+  const analysis = await repo.getById(analysisId);
   if (!analysis) {
     const error = new Error('Analysis not found');
     error.status = 404;
@@ -79,20 +79,20 @@ export async function createMitigationPreview({ analysisId, strategy }) {
     corrected_filename: updated.artifactPaths.correctedFileName,
   };
   await enrichGeminiNarration(updated);
-  repo.save(updated);
+  await repo.save(updated);
   return updated;
 }
 
-export function listAnalyses() {
-  return repo.list();
+export async function listAnalyses() {
+  return await repo.list();
 }
 
-export function getAnalysis(id) {
-  return repo.getById(id);
+export async function getAnalysis(id) {
+  return await repo.getById(id);
 }
 
 export async function generateAnalysisNarration(id) {
-  const analysis = repo.getById(id);
+  const analysis = await repo.getById(id);
   if (!analysis) {
     const error = new Error('Analysis not found');
     error.status = 404;
@@ -105,12 +105,12 @@ export async function generateAnalysisNarration(id) {
     gemini_interpretation: generated,
   };
   analysis.updatedAt = new Date().toISOString();
-  repo.save(analysis);
+  await repo.save(analysis);
   return analysis;
 }
 
-export function deleteAnalysis(id) {
-  const analysis = repo.deleteById(id);
+export async function deleteAnalysis(id) {
+  const analysis = await repo.deleteById(id);
   if (!analysis) {
     const error = new Error('Analysis not found');
     error.status = 404;
@@ -121,8 +121,8 @@ export function deleteAnalysis(id) {
   return analysis;
 }
 
-export function getAnalysisArtifact(id, type) {
-  const analysis = repo.getById(id);
+export async function getAnalysisArtifact(id, type) {
+  const analysis = await repo.getById(id);
   if (!analysis) {
     const error = new Error('Analysis not found');
     error.status = 404;
@@ -147,7 +147,7 @@ export function getAnalysisArtifact(id, type) {
         reportPdfUrl: artifactPaths.reportPdfUrl,
         corrected_filename: analysis.result.artifacts?.corrected_filename || artifactPaths.correctedFileName,
       };
-      repo.save(analysis);
+      await repo.save(analysis);
       filePath = type === 'pdf' ? artifactPaths.reportPdfPath : artifactPaths.correctedCsvPath;
     }
   }

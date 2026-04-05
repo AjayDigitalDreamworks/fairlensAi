@@ -15,14 +15,14 @@ const steps = [
   },
   {
     number: "03",
-    title: "Neural Insights",
-    description: "Receive explainable metrics showing exactly where structural drift exists",
+    title: "Detailed Insights",
+    description: "Receive clear metrics showing exactly where bias and drift exist",
     status: "OK"
   },
   {
     number: "04",
-    title: "Neural Mitigation",
-    description: "Apply automated re-balancing strategies with a single operational click",
+    title: "Correction",
+    description: "Apply automated re-balancing strategies with a single click",
     status: "READY"
   },
 ];
@@ -34,10 +34,10 @@ export default function HowItWorks() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="space-y-4 text-center mb-24">
           <h2 className="text-3xl sm:text-5xl font-bold font-sans text-white uppercase tracking-tight">
-            Operational Lifecycle
+            How it works
           </h2>
           <p className="text-xs font-mono uppercase tracking-[0.4em] text-muted-foreground opacity-60">
-             From source ingestion to fairness restoration in minutes...
+             From data upload to fairness correction in minutes...
           </p>
         </div>
 

@@ -17,7 +17,7 @@ export default function Hero() {
           <div className="lg:col-span-6 space-y-8 text-center lg:text-left">
             <div className="inline-flex items-center rounded-none border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-[10px] font-black font-mono text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-colors hover:bg-emerald-500/20 cursor-default animate-float uppercase tracking-widest">
               <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
-              The DevOps for AI Fairness Sync
+              AI Fairness Audit Platform
             </div>
 
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white leading-[1.1]">
@@ -29,7 +29,7 @@ export default function Hero() {
             </h1>
 
             <p className="max-w-2xl mx-auto lg:mx-0 text-lg sm:text-xl text-muted-foreground/90 font-mono text-sm leading-relaxed uppercase tracking-tighter opacity-80">
-              Universal fairness layer for AI. Neural core engine designed to find and neutralize bias in models across hiring, finance, and healthcare.
+              Automated fairness auditing for AI models. Upload your dataset and get a complete bias analysis with corrected outputs — for hiring, finance, and healthcare.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start pt-4">
@@ -55,7 +55,7 @@ export default function Hero() {
                     <div className="h-2.5 w-2.5 rounded-none bg-yellow-500/40"></div>
                     <div className="h-2.5 w-2.5 rounded-none bg-emerald-500/40"></div>
                   </div>
-                  <div className="absolute left-1/2 -translate-x-1/2 text-[9px] font-mono font-black uppercase tracking-widest text-muted-foreground/60">FairAI Advanced Analysis v7.0</div>
+                  <div className="absolute left-1/2 -translate-x-1/2 text-[9px] font-mono font-black uppercase tracking-widest text-muted-foreground/60">FairLens AI Audit Engine</div>
                 </div>
                 
                 {/* Dynamic Neural Core Visualization */}

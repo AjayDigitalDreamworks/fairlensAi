@@ -50,7 +50,7 @@ export default function AuditLogs({ audits = defaultRecentAudits }: { audits?: A
       <div className="flex items-center justify-between px-2">
         <h2 className="flex items-center gap-2 text-xl font-bold tracking-wide text-white">
           <FileText className="h-5 w-5 text-primary" />
-          Recent Audit Logs
+          Recent Audits
         </h2>
         <Button
           asChild
@@ -58,7 +58,7 @@ export default function AuditLogs({ audits = defaultRecentAudits }: { audits?: A
           size="sm"
           className="h-8 border-primary/20 px-6 font-mono text-[10px] uppercase tracking-widest text-primary transition-all hover:bg-primary/10 hover:text-primary"
         >
-          <Link to="/reports">Access Full Logs</Link>
+          <Link to="/reports">View All Reports</Link>
         </Button>
       </div>
 
@@ -84,7 +84,7 @@ export default function AuditLogs({ audits = defaultRecentAudits }: { audits?: A
                     className={`flex flex-1 items-center gap-3 border px-6 py-2 text-center transition-colors md:flex-none ${getBiasBgColor(audit.biasScore)}`}
                   >
                     <div className="text-left leading-none">
-                      <p className="mb-1 font-mono text-[9px] uppercase tracking-tighter text-white/40">Bias Signal</p>
+                      <p className="mb-1 font-mono text-[9px] uppercase tracking-tighter text-white/40">Bias Score</p>
                       <p className={`font-mono text-xl font-bold ${getBiasColor(audit.biasScore)}`}>{audit.biasScore}%</p>
                     </div>
                   </div>
@@ -95,7 +95,7 @@ export default function AuditLogs({ audits = defaultRecentAudits }: { audits?: A
           ))
         ) : (
           <div className="card-glow p-6 text-sm text-muted-foreground">
-            No audit telemetry has been recorded yet. Launch a FairLens analysis to start filling the activity stream.
+            No audits recorded yet. Upload a dataset from the Analyzer page to get started.
           </div>
         )}
       </div>

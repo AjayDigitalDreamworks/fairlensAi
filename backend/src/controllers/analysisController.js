@@ -22,21 +22,30 @@ export async function uploadAndAnalyze(req, res, next) {
   }
 }
 
-export function listAll(req, res) {
-  res.json({ items: listAnalyses().map(stripInternalPaths) });
-}
-
-export function getOne(req, res) {
-  const item = getAnalysis(req.params.id);
-  if (!item) {
-    return res.status(404).json({ message: 'Analysis not found.' });
-  }
-  res.json(stripInternalPaths(item));
-}
-
-export function removeOne(req, res, next) {
+export async function listAll(req, res, next) {
   try {
-    const deleted = deleteAnalysis(req.params.id);
+    const analyses = await listAnalyses();
+    res.json({ items: analyses.map(stripInternalPaths) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getOne(req, res, next) {
+  try {
+    const item = await getAnalysis(req.params.id);
+    if (!item) {
+      return res.status(404).json({ message: 'Analysis not found.' });
+    }
+    res.json(stripInternalPaths(item));
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function removeOne(req, res, next) {
+  try {
+    const deleted = await deleteAnalysis(req.params.id);
     res.json({ id: deleted.id });
   } catch (error) {
     next(error);
@@ -64,18 +73,18 @@ export async function generateGeminiExplanation(req, res, next) {
   }
 }
 
-export function downloadCorrectedCsv(req, res, next) {
+export async function downloadCorrectedCsv(req, res, next) {
   try {
-    const artifact = getAnalysisArtifact(req.params.id, 'csv');
+    const artifact = await getAnalysisArtifact(req.params.id, 'csv');
     res.download(artifact.filePath, artifact.downloadName);
   } catch (error) {
     next(error);
   }
 }
 
-export function downloadReportPdf(req, res, next) {
+export async function downloadReportPdf(req, res, next) {
   try {
-    const artifact = getAnalysisArtifact(req.params.id, 'pdf');
+    const artifact = await getAnalysisArtifact(req.params.id, 'pdf');
     res.download(artifact.filePath, artifact.downloadName);
   } catch (error) {
     next(error);

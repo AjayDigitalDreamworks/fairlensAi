@@ -136,7 +136,7 @@ GLOBAL_SHAP_FEATURE_LIMIT = 10
 LOCAL_EXPLANATION_LIMIT = 3
 LOCAL_CONTRIBUTOR_LIMIT = 4
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
-GEMINI_MODEL = os.getenv("FAIRAI_GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("FAIRAI_GEMINI_MODEL", "gemini-2.0-flash")
 SPARK_ENABLED = os.getenv("FAIRAI_SPARK_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
 SPARK_MASTER = os.getenv("FAIRAI_SPARK_MASTER", "local[*]")
 SPARK_APP_NAME = "FairAI-ML-Service"
@@ -1658,7 +1658,7 @@ def apply_massaging_correction(
             continue
 
         current_rate = float(working.loc[group_mask, "corrected_prediction"].mean())
-        target_rate = min(0.98, baseline_rate)
+        target_rate = min(0.995, baseline_rate)
         gap = max(0.0, target_rate - current_rate)
         flips_needed = int(round(gap * group_size))
         if flips_needed <= 0:
@@ -1717,7 +1717,7 @@ def optimize_group_thresholds(
     baseline_mask = working[sensitive].astype(str) == baseline_group
     baseline_rate = float((working.loc[baseline_mask, probability_column] >= 0.5).mean())
     thresholds = [{"group": baseline_group, "threshold": 0.5}]
-    target_rate = min(0.98, max(baseline_rate, 0.5))
+    target_rate = min(0.995, max(baseline_rate, 0.5))
 
     for group in groups[1:]:
         group_mask = working[sensitive].astype(str) == group
@@ -1781,7 +1781,7 @@ def iterative_fairness_repair(
         if not rate_values:
             break
 
-        target_rate = float(np.clip(np.mean(rate_values), 0.35, 0.9))
+        target_rate = float(np.clip(np.mean(rate_values), 0.35, 0.995))
         changed = False
 
         for group in groups:

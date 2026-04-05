@@ -1,29 +1,59 @@
-import { readDb, writeDb } from '../utils/fsdb.js';
+import { Analysis } from './Analysis.js';
 
 export class AnalysisRepository {
-  list() {
-    return readDb().analyses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  async list() {
+    try {
+      const list = await Analysis.find({}, {
+        'result.explanation': 0,
+        'result.explainability': 0,
+        'result.report_markdown': 0,
+        'result.analysis_log': 0,
+        'result.artifacts.corrected_csv': 0,
+        'result.artifacts.fairness_report_markdown': 0,
+        'result.artifacts.pdf_report_path': 0
+      })
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean()
+      .maxTimeMS(5000);
+      return list;
+    } catch (err) {
+      console.error('Mongoose list error:', err.message);
+      return [];
+    }
   }
 
-  getById(id) {
-    return readDb().analyses.find((item) => item.id === id) || null;
+  async getById(id) {
+    try {
+      const doc = await Analysis.findOne({ id }).lean().maxTimeMS(5000);
+      return doc;
+    } catch (err) {
+      console.error(`Mongoose getById(${id}) error:`, err.message);
+      return null;
+    }
   }
 
-  save(analysis) {
-    const db = readDb();
-    const idx = db.analyses.findIndex((item) => item.id === analysis.id);
-    if (idx >= 0) db.analyses[idx] = analysis;
-    else db.analyses.push(analysis);
-    writeDb(db);
-    return analysis;
+  async save(analysis) {
+    try {
+      const doc = await Analysis.findOneAndUpdate(
+        { id: analysis.id },
+        { $set: analysis },
+        { new: true, upsert: true, maxTimeMS: 5000 }
+      ).lean();
+      return doc;
+    } catch (err) {
+      console.error('Mongoose save error:', err.message);
+      return analysis;
+    }
   }
 
-  deleteById(id) {
-    const db = readDb();
-    const existing = db.analyses.find((item) => item.id === id) || null;
-    if (!existing) return null;
-    db.analyses = db.analyses.filter((item) => item.id !== id);
-    writeDb(db);
-    return existing;
+  async deleteById(id) {
+    try {
+      const doc = await Analysis.findOneAndDelete({ id }).lean().maxTimeMS(5000);
+      return doc;
+    } catch (err) {
+      console.error(`Mongoose deleteById(${id}) error:`, err.message);
+      return null;
+    }
   }
 }

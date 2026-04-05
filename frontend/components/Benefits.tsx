@@ -41,11 +41,11 @@ export default function Benefits() {
                 <div className="text-6xl font-bold text-emerald-500/20 mb-6 group-hover:scale-110 transition-transform duration-700">
                    <ShieldAlert className="w-20 h-20 mx-auto opacity-40 shadow-[0_0_40px_rgba(16,185,129,0.3)]" />
                 </div>
-                <h3 className="text-xl font-bold text-white uppercase tracking-widest group-hover:text-emerald-400 font-sans transition-colors">Neural Impact Simulation</h3>
-                <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-[0.3em] font-black opacity-60">Real-time vector drift monitoring active...</p>
+                <h3 className="text-xl font-bold text-white uppercase tracking-widest group-hover:text-emerald-400 font-sans transition-colors">Impact Simulation</h3>
+                <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-[0.3em] font-black opacity-60">Bias monitoring active...</p>
                 <div className="mt-8 flex items-center justify-center gap-4">
-                   <div className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono text-[9px] uppercase font-black shadow-[0_0_10px_rgba(16,185,129,0.2)]">Active Sync</div>
-                   <div className="px-4 py-2 bg-white/5 border border-white/10 text-white/40 font-mono text-[9px] uppercase font-black">Waiting Signal</div>
+                    <div className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono text-[9px] uppercase font-black shadow-[0_0_10px_rgba(16,185,129,0.2)]">Monitoring</div>
+                    <div className="px-4 py-2 bg-white/5 border border-white/10 text-white/40 font-mono text-[9px] uppercase font-black">Standby</div>
                 </div>
              </div>
              
