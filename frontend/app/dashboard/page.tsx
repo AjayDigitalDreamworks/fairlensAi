@@ -76,10 +76,17 @@ export default function DashboardPage() {
 
         <div className="card-glow group relative overflow-hidden p-8">
           <div className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]" />
-          <h1 className="mb-2 font-sans text-3xl font-bold tracking-tight text-white">Welcome back, Operator</h1>
-          <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground opacity-60">
-            Neural core online. Scanning long-range fairness trends, portfolio bias telemetry, and operational recommendations.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="mb-2 font-sans text-3xl font-bold tracking-tight text-white">Welcome back, Operator</h1>
+              <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground opacity-60">
+                Neural core online. Scanning long-range fairness trends, portfolio bias telemetry, and operational recommendations.
+              </p>
+            </div>
+            <Button asChild variant="outline" className="border-white/10 text-white hover:bg-white/5">
+              <Link to="/explainability">Open Explainability</Link>
+            </Button>
+          </div>
         </div>
 
         <QuickStats stats={quickStats} />

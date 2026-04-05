@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   BarChart3,
+  BrainCircuit,
   Settings,
   FileText,
   Menu,
@@ -18,6 +19,7 @@ import ThemeToggle from "./ThemeToggle";
 const sidebarItems = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Dataset Analyzer", href: "/analyzer", icon: BarChart3 },
+  { name: "Explainability", href: "/explainability", icon: BrainCircuit },
   { name: "Fairness Metrics", href: "/metrics", icon: Shield },
   { name: "Mitigation Toolkit", href: "/mitigation", icon: Zap },
   { name: "Reports", href: "/reports", icon: FileText },
@@ -104,7 +106,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-4">
               <ThemeToggle />
               <div className="text-sm text-muted-foreground hidden sm:block">
-                {pathname === "/analyzer" ? "Automated audit queue" : "Fairness operations hub"}
+                {pathname === "/analyzer"
+                  ? "Automated audit queue"
+                  : pathname === "/explainability"
+                    ? "Model attribution hub"
+                    : "Fairness operations hub"}
               </div>
               <div className="h-8 w-8 border border-primary/50 bg-primary/10 flex items-center justify-center text-primary font-bold text-xs" style={{ borderRadius: 'var(--theme-border-radius)' }}>
                 U

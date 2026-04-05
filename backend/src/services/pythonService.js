@@ -13,7 +13,7 @@ export async function healthCheckPython() {
   return data;
 }
 
-export async function analyzeFile({ filePath, originalName, domain, targetColumn, predictionColumn, sensitiveColumns, positiveLabel }) {
+export async function analyzeFile({ filePath, originalName, domain, targetColumn, predictionColumn, sensitiveColumns, positiveLabel, geminiApiKey }) {
   const form = new FormData();
   form.append('file', fs.createReadStream(filePath), originalName);
   form.append('domain', domain || 'auto');
@@ -21,6 +21,9 @@ export async function analyzeFile({ filePath, originalName, domain, targetColumn
   form.append('prediction_column', predictionColumn || '');
   form.append('sensitive_columns', JSON.stringify(sensitiveColumns || []));
   form.append('positive_label', positiveLabel ?? '1');
+  if (geminiApiKey) {
+    form.append('gemini_api_key', geminiApiKey);
+  }
 
   const { data } = await client.post('/analyze/file', form, {
     headers: form.getHeaders(),

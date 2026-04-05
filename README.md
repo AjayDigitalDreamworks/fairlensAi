@@ -5,6 +5,7 @@ A full-stack fairness auditing platform built from your uploaded frontend and in
 - Express backend
 - Python FastAPI ML service
 - XGBoost surrogate modeling
+- TreeSHAP model explainability for XGBoost analysis paths
 - Apache Spark assisted large-dataset sampling
 - Training-time reweighing for supervised fairness repair
 - Intersectional fairness analysis across combined sensitive groups
@@ -35,6 +36,7 @@ cd ml-service
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+# optional: copy .env.example to .env and set GEMINI_API_KEY
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -64,6 +66,8 @@ ML service: http://localhost:8000/health
 2. Express forwards the file and selected columns to FastAPI.
 3. FastAPI auto-detects domain, target, prediction, and sensitive columns when possible.
 4. FastAPI computes fairness metrics, explanations, proxy-risk causes, corrected dataset output, and analysis logs.
+   When an XGBoost analysis path is available, the explainability payload now includes TreeSHAP global + local attributions.
+   If you provide a Gemini API key during upload, the ml-service also adds a plain-language Gemini narrative on top of the SHAP output.
 5. Express stores the analysis, persists downloadable artifacts, and returns it to the frontend.
 6. Frontend keeps the latest analysis and local history for dashboard/report pages.
 7. Mitigation preview calls back through Express to FastAPI.
@@ -73,3 +77,4 @@ ML service: http://localhost:8000/health
 - This is a strong production-style foundation, but not a fully hardened enterprise deployment.
 - Authentication, rate limiting, observability, and true retraining pipelines are not fully implemented.
 - Persistence currently uses a JSON file so the app runs out of the box without MongoDB.
+- Gemini is optional. Paste the key in the analyzer page for a single run, or set `GEMINI_API_KEY` in `ml-service/.env` if you want the narration layer available by default.

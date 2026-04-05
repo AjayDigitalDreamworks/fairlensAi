@@ -447,7 +447,7 @@ export default function MetricsPage() {
                 <div className="mb-6 flex items-center justify-between gap-4">
                   <div>
                     <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Explainability watchlist</p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Detection notes and proxy features</h2>
+                    <h2 className="mt-2 text-xl font-semibold text-white">Detection notes and model drivers</h2>
                   </div>
                   <RadarIcon className="h-5 w-5 text-emerald-400" />
                 </div>
@@ -469,7 +469,7 @@ export default function MetricsPage() {
                   </div>
 
                   <div className="terminal-card p-5">
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Top proxy-risk features</p>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Top explainability features</p>
                     <div className="mt-4 space-y-3">
                       {(analysis.result.explainability?.top_features ?? []).slice(0, 5).length ? (
                         (analysis.result.explainability?.top_features ?? []).slice(0, 5).map((feature) => (
@@ -477,7 +477,7 @@ export default function MetricsPage() {
                             <div>
                               <p className="font-medium text-white">{feature.feature}</p>
                               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                                {feature.reason ?? "proxy influence"}
+                                {feature.reason ?? "model attribution"}
                               </p>
                             </div>
                             <span className="text-sm text-emerald-300">

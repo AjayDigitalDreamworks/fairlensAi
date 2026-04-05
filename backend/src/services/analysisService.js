@@ -18,6 +18,7 @@ export async function createAnalysis({ file, body }) {
     predictionColumn: body.predictionColumn,
     sensitiveColumns,
     positiveLabel: body.positiveLabel,
+    geminiApiKey: body.geminiApiKey,
   });
 
   const analysis = {

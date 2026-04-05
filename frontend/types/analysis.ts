@@ -52,9 +52,45 @@ export type AnalysisLogEntry = {
 export type ExplainabilitySummary = {
   method?: string;
   status?: string;
+  model_source?: string;
   note?: string;
   methods_available?: string[];
   methods_unavailable?: string[];
+  global_feature_importance?: Array<{
+    feature: string;
+    mean_abs_shap: number;
+    average_directional_shap?: number;
+    importance_share: number;
+    direction: string;
+    sensitive?: boolean;
+    summary?: string;
+  }>;
+  local_explanations?: Array<{
+    sample_id: string;
+    row_index: number | string;
+    prediction_probability: number;
+    predicted_label: number;
+    baseline_probability?: number;
+    summary: string;
+    top_contributors: Array<{
+      feature: string;
+      value: string;
+      shap_value: number;
+      magnitude: number;
+      importance_share?: number;
+      direction: string;
+      sensitive?: boolean;
+    }>;
+  }>;
+  gemini_narrative?: {
+    status: string;
+    model?: string;
+    summary?: string | null;
+    key_points?: string[];
+    risk_statement?: string | null;
+    recommended_focus?: string | null;
+    error?: string;
+  };
   shap_style_summary?: Array<{
     feature: string;
     direction: string;
@@ -107,6 +143,7 @@ export type AnalysisPayload = {
       correction_method?: string;
       precorrected_upload?: boolean;
       surrogate_model?: string;
+      explainability_model_source?: string;
       spark_acceleration_active?: boolean;
       reweighing_applied?: boolean;
       intersectional_analysis_enabled?: boolean;
