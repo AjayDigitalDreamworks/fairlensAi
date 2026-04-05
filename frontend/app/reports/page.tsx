@@ -149,6 +149,7 @@ export default function ReportsPage() {
   }, [analyses]);
 
   const activeSummary = activeAnalysis?.result.explanation.executive_summary ?? "Select an audit record to inspect its report details.";
+  const activeGeminiSummary = activeAnalysis?.result.explanation.gemini_interpretation?.text ?? "";
   const anomalyFindings = activeAnalysis ? buildAnomalyFindings(activeAnalysis) : [];
   const correctiveProtocols = activeAnalysis ? buildCorrectiveProtocols(activeAnalysis) : [];
 
@@ -497,6 +498,16 @@ export default function ReportsPage() {
                 Operational Executive Summary
               </h3>
               <p className="text-muted-foreground opacity-80">{activeSummary}</p>
+            </div>
+
+            <div className="space-y-4 border border-cyan-500/20 bg-cyan-500/5 p-6 transition-all hover:border-cyan-400/30">
+              <h3 className="flex items-center gap-2 font-bold uppercase tracking-widest text-white">
+                <Eye className="h-3 w-3 text-cyan-300" />
+                Gemini Interpretation
+              </h3>
+              <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground opacity-90">
+                {activeGeminiSummary || "Generate Gemini interpretation from the Explainability page to see the plain-English dataset explanation here."}
+              </p>
             </div>
 
             <div className="space-y-4 border border-white/5 bg-black/40 p-6 transition-all hover:border-emerald-500/20">
