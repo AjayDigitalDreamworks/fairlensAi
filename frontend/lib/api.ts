@@ -32,6 +32,16 @@ export async function createMitigationPreview(analysisId: string, strategy: stri
   return response.json();
 }
 
+export async function generateGeminiExplanation(analysisId: string): Promise<AnalysisPayload> {
+  const response = await fetch(`${API_URL}/analyses/${analysisId}/gemini-explanation`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    return parseError(response, "Gemini explanation failed");
+  }
+  return response.json();
+}
+
 export async function listAnalyses(): Promise<AnalysisPayload[]> {
   const response = await fetch(`${API_URL}/analyses`);
   if (!response.ok) {

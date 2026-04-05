@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   BarChart3,
+  BrainCircuit,
   Settings,
   FileText,
   Menu,
@@ -18,6 +19,7 @@ import ThemeToggle from "./ThemeToggle";
 const sidebarItems = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Dataset Analyzer", href: "/analyzer", icon: BarChart3 },
+  { name: "Explainability", href: "/explainability", icon: BrainCircuit },
   { name: "Fairness Metrics", href: "/metrics", icon: Shield },
   { name: "Mitigation Toolkit", href: "/mitigation", icon: Zap },
   { name: "Reports", href: "/reports", icon: FileText },

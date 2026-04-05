@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { env } from '../config/env.js';
 import { AnalysisRepository } from '../models/analysisRepository.js';
 import { analyzeFile as callAnalyzeFile, mitigationPreview as callMitigationPreview } from './pythonService.js';
+import { geminiConfigured, generateGeminiNarration } from './geminiService.js';
 import { persistArtifacts } from '../utils/reportArtifacts.js';
 
 const repo = new AnalysisRepository();
@@ -41,6 +42,7 @@ export async function createAnalysis({ file, body }) {
     reportPdfUrl: artifactPaths.reportPdfUrl,
     corrected_filename: artifactPaths.correctedFileName,
   };
+  await enrichGeminiNarration(analysis);
 
   repo.save(analysis);
   fs.unlinkSync(file.path);
@@ -75,6 +77,7 @@ export async function createMitigationPreview({ analysisId, strategy }) {
     reportPdfUrl: updated.artifactPaths.reportPdfUrl,
     corrected_filename: updated.artifactPaths.correctedFileName,
   };
+  await enrichGeminiNarration(updated);
   repo.save(updated);
   return updated;
 }
@@ -85,6 +88,24 @@ export function listAnalyses() {
 
 export function getAnalysis(id) {
   return repo.getById(id);
+}
+
+export async function generateAnalysisNarration(id) {
+  const analysis = repo.getById(id);
+  if (!analysis) {
+    const error = new Error('Analysis not found');
+    error.status = 404;
+    throw error;
+  }
+
+  const generated = await generateGeminiNarration(analysis);
+  analysis.result.explanation = {
+    ...(analysis.result.explanation || {}),
+    gemini_interpretation: generated,
+  };
+  analysis.updatedAt = new Date().toISOString();
+  repo.save(analysis);
+  return analysis;
 }
 
 export function deleteAnalysis(id) {
@@ -170,5 +191,42 @@ function removeArtifactsForAnalysis(id) {
 
   if (fs.existsSync(targetDir)) {
     fs.rmSync(targetDir, { recursive: true, force: true });
+  }
+}
+
+async function enrichGeminiNarration(analysis) {
+  if (!geminiConfigured()) {
+    analysis.result.explanation = {
+      ...(analysis.result.explanation || {}),
+      gemini_interpretation: {
+        provider: 'gemini',
+        model: env.geminiModel,
+        generatedAt: null,
+        text: '',
+        status: 'not_configured',
+        note: 'Set GEMINI_API_KEY on the backend to enable natural-language explainability.',
+      },
+    };
+    return;
+  }
+
+  try {
+    const generated = await generateGeminiNarration(analysis);
+    analysis.result.explanation = {
+      ...(analysis.result.explanation || {}),
+      gemini_interpretation: generated,
+    };
+  } catch (error) {
+    analysis.result.explanation = {
+      ...(analysis.result.explanation || {}),
+      gemini_interpretation: {
+        provider: 'gemini',
+        model: env.geminiModel,
+        generatedAt: new Date().toISOString(),
+        text: '',
+        status: 'failed',
+        note: error instanceof Error ? error.message : 'Gemini explanation failed.',
+      },
+    };
   }
 }

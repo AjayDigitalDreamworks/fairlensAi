@@ -28,6 +28,16 @@ except Exception as exc:  # pragma: no cover - import-time environment specific
     XGBOOST_IMPORT_ERROR = str(exc)
 
 try:
+    import shap
+
+    SHAP_AVAILABLE = True
+    SHAP_IMPORT_ERROR = ""
+except Exception as exc:  # pragma: no cover - import-time environment specific
+    shap = None  # type: ignore[assignment]
+    SHAP_AVAILABLE = False
+    SHAP_IMPORT_ERROR = str(exc)
+
+try:
     from pyspark.sql import SparkSession
     from pyspark.sql import functions as spark_functions
     from pyspark.sql.window import Window
@@ -97,6 +107,7 @@ MAX_INTERSECTIONAL_FINDINGS = 4
 REWEIGHING_WEIGHT_CLIP_MIN = 0.35
 REWEIGHING_WEIGHT_CLIP_MAX = 4.0
 MIN_REWEIGHING_CELL_COUNT = 5
+SHAP_SAMPLE_ROWS = 200
 SPARK_ENABLED = os.getenv("FAIRAI_SPARK_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
 SPARK_MASTER = os.getenv("FAIRAI_SPARK_MASTER", "local[*]")
 SPARK_APP_NAME = "FairAI-ML-Service"
@@ -128,6 +139,8 @@ def health() -> Dict[str, Any]:
         "fairness_extensions": ["intersectional_fairness", "training_reweighing"],
         "xgboost_available": XGBOOST_AVAILABLE,
         "xgboost_import_error": XGBOOST_IMPORT_ERROR or None,
+        "shap_available": SHAP_AVAILABLE,
+        "shap_import_error": SHAP_IMPORT_ERROR or None,
         "spark": spark_runtime_status(),
     }
 
@@ -547,6 +560,7 @@ def analyze_dataframe(
         "group_columns": [],
         "notes": ["Reweighing was not used for this analysis path."],
     }
+    model_explainability: Optional[Dict[str, Any]] = None
     training_rows_used = min(len(df), MAX_TRAIN_ROWS)
     proxy_scan_rows_used = min(len(df), MAX_PROXY_SCAN_ROWS)
 
@@ -559,7 +573,7 @@ def analyze_dataframe(
         inferred_prediction = "_fairai_prediction"
         score_column = "_fairai_prediction_score"
         if inferred_target:
-            df[inferred_prediction], score_series, reweighing_summary = generate_supervised_predictions(
+            df[inferred_prediction], score_series, reweighing_summary, model_explainability = generate_supervised_predictions(
                 df,
                 inferred_target,
                 positive_label,
@@ -650,7 +664,13 @@ def analyze_dataframe(
         root_causes,
         reweighing_summary,
     )
-    explainability = build_explainability(df, inferred_prediction, inferred_target, inferred_sensitive)
+    explainability = build_explainability(
+        df,
+        inferred_prediction,
+        inferred_target,
+        inferred_sensitive,
+        model_explainability=model_explainability,
+    )
     analysis_log = build_analysis_log(
         source_name=source_name,
         requested_domain=requested_domain,
@@ -861,7 +881,7 @@ def generate_supervised_predictions(
     target_column: str,
     positive_label: Any,
     sensitive_columns: List[str],
-) -> tuple[pd.Series, pd.Series, Dict[str, Any]]:
+) -> tuple[pd.Series, pd.Series, Dict[str, Any], Optional[Dict[str, Any]]]:
     X = df.drop(columns=[target_column])
     y = normalize_binary(df[target_column], positive_label)
     sampled = sample_frame(pd.concat([X, y.rename(target_column)], axis=1), MAX_TRAIN_ROWS, target_column)
@@ -875,7 +895,115 @@ def generate_supervised_predictions(
     model.fit(X_train, y_train, model__sample_weight=sample_weights.to_numpy())
     probabilities = predict_in_batches(model, X_full)
     predictions = (probabilities >= 0.5).astype(int)
-    return pd.Series(predictions, index=df.index), pd.Series(probabilities, index=df.index), reweighing_summary
+    shap_explainability = build_shap_explainability(model, X_train)
+    return pd.Series(predictions, index=df.index), pd.Series(probabilities, index=df.index), reweighing_summary, shap_explainability
+
+
+def build_shap_explainability(model: Pipeline, X_train: pd.DataFrame) -> Optional[Dict[str, Any]]:
+    if not SHAP_AVAILABLE or shap is None:
+        return None
+
+    try:
+        sample_size = min(SHAP_SAMPLE_ROWS, len(X_train))
+        if sample_size == 0:
+            return None
+
+        sample_X = X_train.sample(sample_size, random_state=RANDOM_SEED) if len(X_train) > sample_size else X_train.copy()
+        preprocessor = model.named_steps["preprocessor"]
+        estimator = model.named_steps["model"]
+        transformed = preprocessor.transform(sample_X)
+        feature_names = list(preprocessor.get_feature_names_out())
+        explainer = shap.TreeExplainer(estimator)
+        shap_values = explainer.shap_values(transformed)
+
+        if isinstance(shap_values, list):
+            shap_matrix = np.asarray(shap_values[0])
+        else:
+            shap_matrix = np.asarray(shap_values)
+
+        if shap_matrix.ndim == 3:
+            shap_matrix = shap_matrix[:, :, 0]
+        if shap_matrix.ndim != 2 or shap_matrix.shape[1] != len(feature_names):
+            return None
+
+        mean_abs = np.abs(shap_matrix).mean(axis=0)
+        mean_signed = shap_matrix.mean(axis=0)
+        feature_rollup: Dict[str, Dict[str, float]] = {}
+
+        for index, transformed_name in enumerate(feature_names):
+            source_feature = resolve_source_feature_name(transformed_name, sample_X.columns.tolist())
+            bucket = feature_rollup.setdefault(source_feature, {"importance": 0.0, "signed": 0.0})
+            bucket["importance"] += float(mean_abs[index])
+            bucket["signed"] += float(mean_signed[index])
+
+        ranked = sorted(feature_rollup.items(), key=lambda item: item[1]["importance"], reverse=True)
+        top_features = []
+        for feature, values in ranked[:10]:
+            direction = "positive" if values["signed"] >= 0 else "negative"
+            top_features.append(
+                {
+                    "feature": feature,
+                    "score": round(values["importance"], 4),
+                    "weight": round(values["signed"], 4),
+                    "direction": direction,
+                    "reason": f"Mean |SHAP| aggregated from the XGBoost surrogate model ({sample_size} sampled rows).",
+                }
+            )
+
+        shap_style_summary = [
+            {
+                "feature": item["feature"],
+                "impact": item["score"],
+                "direction": item["direction"],
+                "summary": (
+                    f"{item['feature']} has a {item['direction']} contribution trend in the surrogate model "
+                    f"and ranks among the strongest SHAP drivers."
+                ),
+            }
+            for item in top_features[:6]
+        ]
+
+        lime_style_example = [
+            {
+                "feature": item["feature"],
+                "impact": item["score"],
+                "direction": item["direction"],
+                "summary": (
+                    f"For sampled local predictions, {item['feature']} repeatedly moved the score in a "
+                    f"{item['direction']} direction."
+                ),
+            }
+            for item in top_features[:3]
+        ]
+
+        return {
+            "status": "model_based",
+            "method": "shap_tree_explainer",
+            "methods_available": ["SHAP", "surrogate_feature_ranking", "group_threshold_optimization", "massaging_correction"],
+            "methods_unavailable": ["LIME"],
+            "top_features": top_features,
+            "shap_style_summary": shap_style_summary,
+            "lime_style_example": lime_style_example,
+            "note": (
+                "SHAP is now computed directly on the trained XGBoost surrogate model. "
+                "If you want LLM narration later, add Gemini as a language layer on top of these SHAP values, not as a replacement."
+            ),
+        }
+    except Exception:
+        return None
+
+
+def resolve_source_feature_name(transformed_name: str, source_columns: List[str]) -> str:
+    normalized = transformed_name
+    for prefix in ("num__", "cat__"):
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :]
+            break
+
+    for column in sorted(source_columns, key=len, reverse=True):
+        if normalized == column or normalized.startswith(f"{column}_"):
+            return column
+    return normalized
 
 
 def generate_unsupervised_predictions(df: pd.DataFrame, sensitive_columns: List[str]) -> tuple[pd.Series, pd.Series]:
@@ -1566,7 +1694,16 @@ def iterative_fairness_repair(
     }
 
 
-def build_explainability(df: pd.DataFrame, prediction_column: str, target_column: Optional[str], sensitive_columns: List[str]) -> Dict[str, Any]:
+def build_explainability(
+    df: pd.DataFrame,
+    prediction_column: str,
+    target_column: Optional[str],
+    sensitive_columns: List[str],
+    model_explainability: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    if model_explainability:
+        return model_explainability
+
     top_features = []
     sampled = sample_frame(df, MAX_PROXY_SCAN_ROWS, target_column)
     for column in sampled.columns:
@@ -1605,7 +1742,10 @@ def build_explainability(df: pd.DataFrame, prediction_column: str, target_column
         "top_features": top_features,
         "shap_style_summary": shap_style_summary,
         "lime_style_example": lime_style_example,
-        "note": "This environment exposes surrogate explainability with local hybrid mitigation. True SHAP/LIME pipelines are not installed in the local stack.",
+        "note": (
+            "This run fell back to proxy-based explainability because SHAP could not be computed in the local runtime. "
+            f"SHAP import status: {SHAP_IMPORT_ERROR or 'runtime execution unavailable'}."
+        ),
     }
 
 

@@ -1,4 +1,4 @@
-import { createAnalysis, createMitigationPreview, deleteAnalysis, getAnalysis, getAnalysisArtifact, listAnalyses } from '../services/analysisService.js';
+import { createAnalysis, createMitigationPreview, deleteAnalysis, generateAnalysisNarration, getAnalysis, getAnalysisArtifact, listAnalyses } from '../services/analysisService.js';
 import { healthCheckPython } from '../services/pythonService.js';
 
 export async function health(req, res, next) {
@@ -49,6 +49,15 @@ export async function mitigationPreview(req, res, next) {
       analysisId: req.params.id,
       strategy: req.body.strategy,
     });
+    res.json(stripInternalPaths(updated));
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function generateGeminiExplanation(req, res, next) {
+  try {
+    const updated = await generateAnalysisNarration(req.params.id);
     res.json(stripInternalPaths(updated));
   } catch (error) {
     next(error);

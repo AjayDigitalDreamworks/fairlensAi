@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { TrendingUp, CheckCircle, AlertTriangle, ArrowRight } from "lucide-react";
+import { TrendingUp, CheckCircle, AlertTriangle, ArrowRight, BrainCircuit } from "lucide-react";
 
 const actions = [
   {
@@ -15,6 +15,13 @@ const actions = [
     title: "Verify Metrics",
     description: "Evaluate real-time model parity scores",
     accent: "secondary"
+  },
+  {
+    href: "/explainability",
+    icon: BrainCircuit,
+    title: "Inspect SHAP",
+    description: "Open model attribution and explanation signals",
+    accent: "primary"
   },
   {
     href: "/mitigation",
@@ -45,7 +52,7 @@ const accentStyles = {
 
 export default function QuickActions() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
       {actions.map((action, idx) => {
         const Icon = action.icon;
         const style = accentStyles[action.accent as keyof typeof accentStyles];

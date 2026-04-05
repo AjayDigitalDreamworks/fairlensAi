@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { env } from '../config/env.js';
-import { downloadCorrectedCsv, downloadReportPdf, getOne, health, listAll, mitigationPreview, removeOne, uploadAndAnalyze } from '../controllers/analysisController.js';
+import { downloadCorrectedCsv, downloadReportPdf, generateGeminiExplanation, getOne, health, listAll, mitigationPreview, removeOne, uploadAndAnalyze } from '../controllers/analysisController.js';
 
 const router = Router();
 
@@ -23,5 +23,6 @@ router.get('/analyses/:id/corrected.csv', downloadCorrectedCsv);
 router.get('/analyses/:id/report.pdf', downloadReportPdf);
 router.post('/analyses/upload', upload.single('file'), uploadAndAnalyze);
 router.post('/analyses/:id/mitigation-preview', mitigationPreview);
+router.post('/analyses/:id/gemini-explanation', generateGeminiExplanation);
 
 export default router;

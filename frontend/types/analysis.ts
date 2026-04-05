@@ -140,6 +140,14 @@ export type AnalysisPayload = {
     explanation: {
       executive_summary: string;
       plain_language: string[];
+      gemini_interpretation?: {
+        provider?: string;
+        model?: string;
+        generatedAt?: string | null;
+        text?: string;
+        status?: string;
+        note?: string;
+      };
     };
     preview_scores_available?: boolean;
     analysis_log?: AnalysisLogEntry[];
