@@ -304,7 +304,7 @@ export default function MitigationPage() {
                           <h3 className="font-semibold text-white">Execution Steps</h3>
                         </div>
                         <div className="space-y-2">
-                          {analysis.mitigationPreview.execution_steps.map((step, i) => (
+                          {analysis.mitigationPreview?.execution_steps?.map((step, i) => (
                             <p key={step} className="text-sm text-muted-foreground">
                               <span className="mr-2 text-emerald-400 font-mono">{i + 1}.</span>{step}
                             </p>
@@ -318,18 +318,18 @@ export default function MitigationPage() {
                           <h3 className="font-semibold text-white">Mitigation Notes</h3>
                         </div>
                         <div className="space-y-2">
-                          {analysis.mitigationPreview.operational_notes.map((note) => (
+                          {analysis.mitigationPreview?.operational_notes?.map((note) => (
                             <p key={note} className="text-sm text-muted-foreground">• {note}</p>
                           ))}
                         </div>
                       </div>
                     </div>
 
-                    {analysis.mitigationPreview.group_projection.length > 0 && (
+                    {analysis.mitigationPreview?.group_projection?.length > 0 && (
                       <div className="space-y-3">
                         <h3 className="text-lg font-semibold text-white">Per-Group Projection</h3>
                         <div className="grid gap-3 md:grid-cols-2">
-                          {analysis.mitigationPreview.group_projection.map((group) => (
+                          {analysis.mitigationPreview?.group_projection?.map((group) => (
                             <div key={group.sensitive_column} className="terminal-card p-5">
                               <p className="text-sm font-semibold text-white">{group.sensitive_column}</p>
                               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">

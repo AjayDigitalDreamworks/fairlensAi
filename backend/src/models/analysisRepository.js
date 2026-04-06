@@ -9,7 +9,6 @@ export class AnalysisRepository {
         'result.report_markdown': 0,
         'result.analysis_log': 0,
         'result.corrected_csv': 0,
-        'result.sensitive_findings.group_metrics': 0,
         'result.sensitive_findings.notes': 0,
         'result.intersectional_findings.group_metrics': 0,
         'result.intersectional_findings.notes': 0,

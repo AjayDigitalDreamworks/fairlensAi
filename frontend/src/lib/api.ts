@@ -5,8 +5,17 @@ const API_URL =
   "http://localhost:4000/api/v1";
 
 async function parseError(response: Response, fallback: string): Promise<never> {
-  const payload = await response.json().catch(() => ({ message: fallback }));
-  throw new Error(payload.message || fallback);
+  const text = await response.text().catch(() => "");
+  let message = fallback;
+  try {
+    const payload = JSON.parse(text);
+    message = payload.message || payload.detail || fallback;
+  } catch {
+    if (text && text.length > 0 && text.length < 300) {
+      message = text;
+    }
+  }
+  throw new Error(message);
 }
 
 export async function uploadAnalysis(formData: FormData): Promise<AnalysisPayload> {

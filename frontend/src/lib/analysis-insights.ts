@@ -69,32 +69,36 @@ const linePalette = [
 
 export function getCorrectedScore(report: AnalysisPayload) {
   return (
-    report.result.artifacts?.corrected_fairness_summary?.overall_fairness_score ??
-    report.result.fairness_summary.corrected_fairness_score ??
+    report.result?.artifacts?.corrected_fairness_summary?.overall_fairness_score ??
+    report.result?.fairness_summary?.corrected_fairness_score ??
     null
   );
 }
 
 export function getCorrectedSensitiveFindings(report: AnalysisPayload): SensitiveFinding[] {
-  return report.result.artifacts?.corrected_sensitive_findings ?? report.result.corrected_sensitive_findings ?? [];
+  return report.result?.artifacts?.corrected_sensitive_findings ?? report.result?.corrected_sensitive_findings ?? [];
+}
+
+export function getFindingGroupMetrics(finding: SensitiveFinding) {
+  return Array.isArray(finding.group_metrics) ? finding.group_metrics : [];
 }
 
 export function getBiasSignal(report: AnalysisPayload) {
-  return Math.max(0, 100 - report.result.fairness_summary.overall_fairness_score);
+  return Math.max(0, 100 - (report.result?.fairness_summary?.overall_fairness_score ?? 100));
 }
 
 export function isTargetMet(report: AnalysisPayload) {
-  const target = report.result.fairness_summary.fairness_target ?? 95;
+  const target = report.result?.fairness_summary?.fairness_target ?? 95;
   const correctedScore = getCorrectedScore(report);
   return typeof correctedScore === "number"
     ? correctedScore >= target
-    : report.result.fairness_summary.overall_fairness_score >= target;
+    : (report.result?.fairness_summary?.overall_fairness_score ?? 0) >= target;
 }
 
 export function getProtocolType(report: AnalysisPayload) {
   if (report.mitigationPreview) return "Mitigation Toolkit";
   if (isTargetMet(report)) return "Compliance Release";
-  if (report.result.metadata.prediction_column) return "Model Evaluation";
+  if (report.result?.metadata?.prediction_column) return "Model Evaluation";
   return "Dataset Analyzer";
 }
 
@@ -143,16 +147,16 @@ export function buildQuickStats(analyses: AnalysisPayload[]): QuickStatItem[] {
 
   const improvedCount = analyses.filter((report) => {
     const correctedScore = getCorrectedScore(report);
-    return typeof correctedScore === "number" && correctedScore > report.result.fairness_summary.overall_fairness_score;
+    return typeof correctedScore === "number" && correctedScore > (report.result?.fairness_summary?.overall_fairness_score ?? 0);
   }).length;
 
   const complianceAverage = analyses.length
-    ? analyses.reduce((sum, report) => sum + (getCorrectedScore(report) ?? report.result.fairness_summary.overall_fairness_score), 0) / analyses.length
+    ? analyses.reduce((sum, report) => sum + (getCorrectedScore(report) ?? (report.result?.fairness_summary?.overall_fairness_score ?? 0)), 0) / analyses.length
     : 0;
 
-  const highRiskCount = analyses.filter((report) => report.result.fairness_summary.risk_level === "high").length;
+  const highRiskCount = analyses.filter((report) => report.result?.fairness_summary?.risk_level === "high").length;
   const targetMetCount = analyses.filter(isTargetMet).length;
-  const domains = new Set(analyses.map((report) => report.result.metadata.domain)).size;
+  const domains = new Set(analyses.map((report) => report.result?.metadata?.domain ?? "unknown")).size;
 
   return [
     {
@@ -197,7 +201,7 @@ export function buildRadarTrendData(analyses: AnalysisPayload[]): RadarTrendPoin
       getCorrectedSensitiveFindings(report).map((finding) => [finding.sensitive_column, finding]),
     );
 
-    report.result.sensitive_findings.forEach((finding) => {
+    (report.result?.sensitive_findings ?? []).forEach((finding) => {
       const key = finding.sensitive_column;
       const correctedFinding = correctedByColumn.get(key);
       const current = attributeMap.get(key) ?? { original: 0, corrected: 0, count: 0 };
@@ -257,12 +261,12 @@ export function buildPerformanceTrend(analyses: AnalysisPayload[]): PerformanceT
       count: 0,
     };
 
-    bucket.originalFairnessTotal += report.result.fairness_summary.overall_fairness_score / 100;
-    bucket.correctedFairnessTotal += (getCorrectedScore(report) ?? report.result.fairness_summary.overall_fairness_score) / 100;
+    bucket.originalFairnessTotal += (report.result?.fairness_summary?.overall_fairness_score ?? 0) / 100;
+    bucket.correctedFairnessTotal += (getCorrectedScore(report) ?? (report.result?.fairness_summary?.overall_fairness_score ?? 0)) / 100;
     bucket.count += 1;
 
-    report.result.sensitive_findings.forEach((finding) => {
-      finding.group_metrics.forEach((metric) => {
+    (report.result?.sensitive_findings ?? []).forEach((finding) => {
+      getFindingGroupMetrics(finding).forEach((metric) => {
         const groupName = String(metric.group);
         const groupValue = typeof metric.accuracy === "number" ? metric.accuracy : metric.selection_rate;
         if (typeof groupValue !== "number") return;

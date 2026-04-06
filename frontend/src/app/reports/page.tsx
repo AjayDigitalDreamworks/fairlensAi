@@ -114,15 +114,15 @@ export default function ReportsPage() {
     return analyses.filter((report) => {
       const haystack = [
         report.input.fileName,
-        report.result.metadata.domain,
+        report.result?.metadata?.domain ?? "",
         report.id,
-        report.result.metadata.sensitive_columns.join(" "),
+        report.result?.metadata?.sensitive_columns?.join(" ") ?? "",
       ]
         .join(" ")
         .toLowerCase();
 
       if (query && !haystack.includes(query)) return false;
-      if (filterMode === "high-risk") return report.result.fairness_summary.risk_level === "high";
+      if (filterMode === "high-risk") return report.result?.fairness_summary?.risk_level === "high";
       if (filterMode === "target-met") return isTargetMet(report);
       if (filterMode === "mitigated") return Boolean(report.mitigationPreview);
       return true;
@@ -144,7 +144,7 @@ export default function ReportsPage() {
       : 0;
 
     const averageCompliance = analyses.length
-      ? analyses.reduce((sum, report) => sum + (getCorrectedScore(report) ?? report.result.fairness_summary.overall_fairness_score), 0) / analyses.length
+      ? analyses.reduce((sum, report) => sum + (getCorrectedScore(report) ?? report.result?.fairness_summary?.overall_fairness_score ?? 0), 0) / analyses.length
       : 0;
 
     return [
@@ -155,8 +155,8 @@ export default function ReportsPage() {
     ];
   }, [analyses]);
 
-  const activeSummary = activeAnalysis?.result.explanation.executive_summary ?? "Select an audit record to inspect its report details.";
-  const activeGeminiSummary = activeAnalysis?.result.explanation.gemini_interpretation?.text ?? "";
+  const activeSummary = activeAnalysis?.result?.explanation?.executive_summary ?? "Select an audit record to inspect its report details.";
+  const activeGeminiSummary = activeAnalysis?.result?.explanation?.gemini_interpretation?.text ?? "";
   const anomalyFindings = activeAnalysis ? buildAnomalyFindings(activeAnalysis) : [];
   const correctiveProtocols = activeAnalysis ? buildCorrectiveProtocols(activeAnalysis) : [];
 
@@ -243,14 +243,14 @@ export default function ReportsPage() {
     const lines = targets.map((report) => [
       report.id,
       report.input.fileName,
-      report.result.metadata.domain,
+      report.result?.metadata?.domain ?? "unknown",
       report.createdAt,
       getProtocolType(report),
-      report.result.fairness_summary.risk_level,
+      report.result?.fairness_summary?.risk_level ?? "unknown",
       getBiasSignal(report).toFixed(2),
-      report.result.fairness_summary.overall_fairness_score.toFixed(2),
+      (report.result?.fairness_summary?.overall_fairness_score ?? 0).toFixed(2),
       String(getCorrectedScore(report) ?? ""),
-      String(report.result.metadata.rows),
+      String(report.result?.metadata?.rows ?? 0),
       isTargetMet(report) ? "yes" : "no",
     ]);
 
@@ -406,7 +406,7 @@ export default function ReportsPage() {
                                 {report.input.fileName.replace(/\.[^.]+$/, "")}
                               </p>
                               <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground">
-                                {report.result.metadata.domain} | {report.id.slice(0, 8)}
+                                {report.result?.metadata?.domain ?? "unknown"} | {report.id.slice(0, 8)}
                               </p>
                             </div>
                           </div>
@@ -427,7 +427,7 @@ export default function ReportsPage() {
                           </div>
                         </td>
                         <td className="px-6 py-5 text-center font-mono text-muted-foreground opacity-70">
-                          {formatDensity(report.result.metadata.rows)}
+                          {formatDensity(report.result?.metadata?.rows ?? 0)}
                         </td>
                         <td className="px-6 py-5">
                           <div className="flex items-center justify-center gap-3">
@@ -490,9 +490,9 @@ export default function ReportsPage() {
             </h2>
             {activeAnalysis && (
               <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono uppercase tracking-[0.24em] text-muted-foreground">
-                <span>Original {formatMetric(activeAnalysis.result.fairness_summary.overall_fairness_score)}%</span>
+                <span>Original {formatMetric(activeAnalysis.result?.fairness_summary?.overall_fairness_score ?? 0)}%</span>
                 <span className="text-emerald-300">
-                  Corrected {formatMetric(getCorrectedScore(activeAnalysis) ?? activeAnalysis.result.fairness_summary.overall_fairness_score)}%
+                  Corrected {formatMetric(getCorrectedScore(activeAnalysis) ?? activeAnalysis.result?.fairness_summary?.overall_fairness_score ?? 0)}%
                 </span>
               </div>
             )}
@@ -591,17 +591,17 @@ export default function ReportsPage() {
 }
 
 function getCorrectedScore(report: AnalysisPayload) {
-  return report.result.artifacts?.corrected_fairness_summary?.overall_fairness_score ?? report.result.fairness_summary.corrected_fairness_score ?? null;
+  return report.result?.artifacts?.corrected_fairness_summary?.overall_fairness_score ?? report.result?.fairness_summary?.corrected_fairness_score ?? null;
 }
 
 function getBiasSignal(report: AnalysisPayload) {
-  return Math.max(0, 100 - report.result.fairness_summary.overall_fairness_score);
+  return Math.max(0, 100 - (report.result?.fairness_summary?.overall_fairness_score ?? 100));
 }
 
 function getProtocolType(report: AnalysisPayload) {
   if (report.mitigationPreview) return "Mitigation Report";
   if (isTargetMet(report)) return "Compliance Report";
-  if (report.result.metadata.prediction_column) return "Model Evaluation";
+  if (report.result?.metadata?.prediction_column) return "Model Evaluation";
   return "Dataset Analysis";
 }
 
@@ -613,22 +613,22 @@ function getBiasColor(score: number) {
 
 function isTargetMet(report: AnalysisPayload) {
   const correctedScore = getCorrectedScore(report);
-  return typeof correctedScore === "number" ? correctedScore >= 95 : report.result.fairness_summary.overall_fairness_score >= 95;
+  return typeof correctedScore === "number" ? correctedScore >= 95 : (report.result?.fairness_summary?.overall_fairness_score ?? 0) >= 95;
 }
 
 function buildAnomalyFindings(report: AnalysisPayload) {
-  const findings = [...report.result.sensitive_findings]
+  const findings = [...(report.result?.sensitive_findings ?? [])]
     .sort((left, right) => left.fairness_score - right.fairness_score)
     .map(
       (finding) =>
         `${finding.sensitive_column} fairness ${formatMetric(finding.fairness_score)}% with ${finding.risk_level} risk and disparate impact ${finding.disparate_impact.toFixed(2)}.`,
     );
 
-  return Array.from(new Set([...findings, ...report.result.root_causes.map((cause) => cause.details)])).slice(0, 3);
+  return Array.from(new Set([...findings, ...(report.result?.root_causes?.map((cause) => cause.details) ?? [])])).slice(0, 3);
 }
 
 function buildCorrectiveProtocols(report: AnalysisPayload) {
-  return report.result.recommendations.map((rec) => `${rec.title}: ${rec.description}`).slice(0, 3);
+  return (report.result?.recommendations?.map((rec) => `${rec.title}: ${rec.description}`) ?? []).slice(0, 3);
 }
 
 function formatRelativeTimestamp(value: string) {

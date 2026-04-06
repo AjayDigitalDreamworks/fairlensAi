@@ -87,8 +87,8 @@ export default function ExplainabilityPage() {
     [analysisId, analyses, fullAnalysis],
   );
 
-  const explainability = analysis?.result.explainability;
-  const geminiInterpretation = analysis?.result.explanation.gemini_interpretation;
+  const explainability = analysis?.result?.explainability;
+  const geminiInterpretation = analysis?.result?.explanation?.gemini_interpretation;
   const topFeatures = explainability?.top_features ?? [];
   const shapSummary = explainability?.shap_style_summary ?? [];
   const localExamples = explainability?.lime_style_example ?? [];

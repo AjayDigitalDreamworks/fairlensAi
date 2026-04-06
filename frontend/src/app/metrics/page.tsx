@@ -7,6 +7,7 @@ import {
   formatRelativeTime,
   getCorrectedScore,
   getCorrectedSensitiveFindings,
+  getFindingGroupMetrics,
 } from "@/lib/analysis-insights";
 import { getCorrectedCsvUrl, getPdfReportUrl, listAnalyses } from "@/lib/api";
 import { loadAnalysisHistory, loadLatestAnalysis, saveAnalysis } from "@/lib/analysis-store";
@@ -116,7 +117,7 @@ export default function MetricsPage() {
       (analysis.mitigationPreview?.group_projection ?? []).map((finding) => [finding.sensitive_column, finding as SensitiveFinding]),
     );
 
-    return analysis.result.sensitive_findings.map((finding) => ({
+    return (analysis.result?.sensitive_findings ?? []).map((finding) => ({
       key: finding.sensitive_column,
       original: finding,
       corrected: correctedMap.get(finding.sensitive_column) ?? null,
@@ -142,12 +143,12 @@ export default function MetricsPage() {
   );
 
   const correctedScore = analysis ? getCorrectedScore(analysis) : null;
-  const targetScore = analysis?.result.fairness_summary.fairness_target ?? 95;
+  const targetScore = analysis?.result?.fairness_summary?.fairness_target ?? 95;
 
   const summaryCards = useMemo(() => {
     if (!analysis) return [];
 
-    const lowestOriginal = [...analysis.result.sensitive_findings].sort((left, right) => left.disparate_impact - right.disparate_impact)[0];
+    const lowestOriginal = [...(analysis.result?.sensitive_findings ?? [])].sort((left, right) => left.disparate_impact - right.disparate_impact)[0];
     const correctedFindings = getCorrectedSensitiveFindings(analysis);
     const lowestCorrected = correctedFindings.length
       ? [...correctedFindings].sort((left, right) => left.disparate_impact - right.disparate_impact)[0]
@@ -156,8 +157,8 @@ export default function MetricsPage() {
     return [
       {
         label: "Overall fairness",
-        value: `${formatMetric(analysis.result.fairness_summary.overall_fairness_score)}%`,
-        note: `${analysis.result.fairness_summary.risk_level} risk band`,
+        value: `${formatMetric(analysis.result?.fairness_summary?.overall_fairness_score ?? 0)}%`,
+        note: `${analysis.result?.fairness_summary?.risk_level ?? "unknown"} risk band`,
         tone: "default" as const,
         icon: Gauge,
       },
@@ -166,7 +167,7 @@ export default function MetricsPage() {
         value: typeof correctedScore === "number" ? `${formatMetric(correctedScore)}%` : "--",
         note:
           typeof correctedScore === "number"
-            ? `${formatMetric(correctedScore - analysis.result.fairness_summary.overall_fairness_score, 1)} pts lift`
+            ? `${formatMetric(correctedScore - (analysis.result?.fairness_summary?.overall_fairness_score ?? 0), 1)} pts lift`
             : "not generated",
         tone: "success" as const,
         icon: ShieldCheck,
@@ -174,7 +175,7 @@ export default function MetricsPage() {
       {
         label: "Target gap",
         value: typeof correctedScore === "number" ? formatMetric(Math.max(0, targetScore - correctedScore), 2) : "--",
-        note: analysis.result.fairness_summary.fairness_target_met ? "release target met" : `threshold ${targetScore}+`,
+        note: analysis.result?.fairness_summary?.fairness_target_met ? "release target met" : `threshold ${targetScore}+`,
         tone: "warning" as const,
         icon: Target,
       },
@@ -195,11 +196,11 @@ export default function MetricsPage() {
       {
         label: "Overall accuracy",
         value:
-          typeof analysis.result.fairness_summary.overall_accuracy === "number"
+          typeof analysis.result?.fairness_summary?.overall_accuracy === "number"
             ? `${formatMetric(analysis.result.fairness_summary.overall_accuracy * 100)}%`
             : "--",
         note:
-          typeof analysis.result.fairness_summary.corrected_accuracy === "number"
+          typeof analysis.result?.fairness_summary?.corrected_accuracy === "number"
             ? `corrected ${formatMetric(analysis.result.fairness_summary.corrected_accuracy * 100)}%`
             : "accuracy telemetry unavailable",
         tone: "default" as const,
@@ -258,11 +259,9 @@ export default function MetricsPage() {
   const groupMetricData = useMemo(() => {
     if (!activeSlice) return [];
 
-    const correctedMap = new Map(
-      (activeSlice.corrected?.group_metrics ?? []).map((group) => [String(group.group), group]),
-    );
+    const correctedMap = new Map((activeSlice.corrected ? getFindingGroupMetrics(activeSlice.corrected) : []).map((group) => [String(group.group), group]));
 
-    return activeSlice.original.group_metrics.map((group) => {
+    return getFindingGroupMetrics(activeSlice.original).map((group) => {
       const correctedGroup = correctedMap.get(String(group.group));
       return {
         group: String(group.group),
@@ -282,19 +281,17 @@ export default function MetricsPage() {
   const comparisonRows = useMemo(() => {
     if (!activeSlice) return [];
 
-    const correctedMap = new Map(
-      (activeSlice.corrected?.group_metrics ?? []).map((group) => [String(group.group), group]),
-    );
+    const correctedMap = new Map((activeSlice.corrected ? getFindingGroupMetrics(activeSlice.corrected) : []).map((group) => [String(group.group), group]));
     const groupNames = Array.from(
       new Set([
-        ...activeSlice.original.group_metrics.map((group) => String(group.group)),
+        ...getFindingGroupMetrics(activeSlice.original).map((group) => String(group.group)),
         ...Array.from(correctedMap.keys()),
       ]),
     );
 
     return groupNames.map((groupName) => ({
       group: groupName,
-      original: activeSlice.original.group_metrics.find((group) => String(group.group) === groupName) ?? null,
+      original: getFindingGroupMetrics(activeSlice.original).find((group) => String(group.group) === groupName) ?? null,
       corrected: correctedMap.get(groupName) ?? null,
     }));
   }, [activeSlice]);
@@ -345,7 +342,7 @@ export default function MetricsPage() {
                       <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Selected analysis</p>
                       <h2 className="mt-2 text-2xl font-semibold text-white">{analysis.input.fileName}</h2>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        {toTitleCase(analysis.result.metadata.domain)} domain | {analysis.result.metadata.rows.toLocaleString()} rows |{" "}
+                        {toTitleCase(analysis.result?.metadata?.domain ?? "unknown")} domain | {analysis.result?.metadata?.rows?.toLocaleString() ?? 0} rows |{" "}
                         {formatRelativeTime(analysis.createdAt)}
                       </p>
                     </div>
@@ -375,7 +372,7 @@ export default function MetricsPage() {
                   <div className="terminal-card p-5">
                     <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Executive summary</p>
                     <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                      {analysis.result.explanation.executive_summary}
+                      {analysis.result?.explanation?.executive_summary}
                     </p>
                   </div>
                 </div>
@@ -400,7 +397,7 @@ export default function MetricsPage() {
                           </p>
                         </div>
                         <span className="text-sm text-emerald-300">
-                          {formatMetric(getCorrectedScore(item) ?? item.result.fairness_summary.overall_fairness_score)}%
+                          {formatMetric(getCorrectedScore(item) ?? item.result?.fairness_summary?.overall_fairness_score ?? 0)}%
                         </span>
                       </div>
                     </button>
@@ -433,12 +430,12 @@ export default function MetricsPage() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <MiniStat label="Correction method" value={toTitleCase(analysis.result.metadata.correction_method ?? "hybrid")} />
-                  <MiniStat label="Target column" value={analysis.result.metadata.target_column ?? "Auto / none"} />
-                  <MiniStat label="Prediction column" value={analysis.result.metadata.prediction_column ?? "Generated"} />
-                  <MiniStat label="Sensitive columns" value={analysis.result.metadata.sensitive_columns.join(", ") || "Auto"} />
-                  <MiniStat label="Training rows" value={String(analysis.result.metadata.training_rows_used ?? analysis.result.metadata.rows)} />
-                  <MiniStat label="Dataset mode" value={analysis.result.metadata.large_dataset_mode ? "Large-scale" : "Standard"} />
+                  <MiniStat label="Correction method" value={toTitleCase(analysis.result?.metadata?.correction_method ?? "hybrid")} />
+                  <MiniStat label="Target column" value={analysis.result?.metadata?.target_column ?? "Auto / none"} />
+                  <MiniStat label="Prediction column" value={analysis.result?.metadata?.prediction_column ?? "Generated"} />
+                  <MiniStat label="Sensitive columns" value={analysis.result?.metadata?.sensitive_columns?.join(", ") || "Auto"} />
+                  <MiniStat label="Training rows" value={String(analysis.result?.metadata?.training_rows_used ?? analysis.result?.metadata?.rows ?? 0)} />
+                  <MiniStat label="Dataset mode" value={analysis.result?.metadata?.large_dataset_mode ? "Large-scale" : "Standard"} />
                 </div>
               </section>
 
@@ -455,8 +452,8 @@ export default function MetricsPage() {
                   <div className="terminal-card p-5">
                     <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Top influential features</p>
                     <div className="mt-4 space-y-3">
-                      {(analysis.result.explainability?.top_features ?? []).slice(0, 10).length ? (
-                        (analysis.result.explainability?.top_features ?? []).slice(0, 10).map((feature) => (
+                      {(analysis.result?.explainability?.top_features ?? []).slice(0, 10).length ? (
+                        (analysis.result?.explainability?.top_features ?? []).slice(0, 10).map((feature) => (
                           <div key={feature.feature} className="flex items-start justify-between gap-4 border-b border-white/5 pb-3 last:border-b-0 last:pb-0">
                             <div>
                               <p className="font-medium text-white">{feature.feature}</p>
@@ -619,7 +616,7 @@ export default function MetricsPage() {
                     <div className="terminal-card p-5">
                       <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Analysis notes</p>
                       <div className="mt-4 space-y-3">
-                        {activeSlice.original.notes.length ? (
+                        {activeSlice.original.notes?.length ? (
                           activeSlice.original.notes.map((note) => (
                             <p key={note} className="text-sm text-muted-foreground">
                               - {note}

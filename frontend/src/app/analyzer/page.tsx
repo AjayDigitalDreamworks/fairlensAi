@@ -80,7 +80,7 @@ export default function DatasetAnalyzer() {
   }, [loading]);
 
   const liveFeed = useMemo<AnalysisLogEntry[]>(() => {
-    if (!loading) return analysis?.result.analysis_log ?? [];
+    if (!loading) return analysis?.result?.analysis_log ?? [];
     const now = new Date();
     return liveStages.map((stage, index) => ({
       timestamp: new Date(now.getTime() + index * 1000).toISOString(),
@@ -97,7 +97,7 @@ export default function DatasetAnalyzer() {
   }, [analysis, liveIndex, loading]);
 
   const correctedScore = analysis ? getCorrectedScore(analysis) : null;
-  const targetScore = analysis?.result.fairness_summary.fairness_target ?? 95;
+  const targetScore = analysis?.result?.fairness_summary?.fairness_target ?? 95;
   const targetDelta = typeof correctedScore === "number" ? Math.max(0, targetScore - correctedScore) : null;
 
   const worstFinding = useMemo(() => {
@@ -108,7 +108,7 @@ export default function DatasetAnalyzer() {
   const correctedWorst = useMemo(() => {
     if (!analysis) return null;
     const correctedFindings = getCorrectedSensitiveFindings(analysis);
-    return correctedFindings.length
+    return (correctedFindings && correctedFindings.length)
       ? [...correctedFindings].sort((left, right) => left.fairness_score - right.fairness_score)[0] || null
       : null;
   }, [analysis]);
@@ -256,7 +256,7 @@ export default function DatasetAnalyzer() {
                       <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Latest result</p>
                       <h3 className="mt-2 text-2xl font-semibold text-white">{analysis.input.fileName}</h3>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        Original fairness {analysis.result.fairness_summary.overall_fairness_score}% and corrected fairness{" "}
+                        Original fairness {analysis.result?.fairness_summary?.overall_fairness_score}% and corrected fairness{" "}
                         {typeof correctedScore === "number" ? `${correctedScore}%` : "not available yet"}.
                       </p>
                     </div>
@@ -347,7 +347,7 @@ export default function DatasetAnalyzer() {
         {analysis && (
           <>
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-              <DetailScoreCard label="Original fairness" value={`${analysis.result.fairness_summary.overall_fairness_score}%`} icon={BarChart3} tone="default" />
+              <DetailScoreCard label="Original fairness" value={`${analysis.result?.fairness_summary?.overall_fairness_score}%`} icon={BarChart3} tone="default" />
               <DetailScoreCard label="Corrected fairness" value={typeof correctedScore === "number" ? `${correctedScore}%` : "--"} icon={ShieldCheck} tone="success" />
               <DetailScoreCard label="Target gap" value={typeof targetDelta === "number" ? targetDelta.toFixed(2) : "--"} icon={Target} tone="warning" />
               <DetailScoreCard label="Reports stored" value={String(history.length || 1)} icon={History} tone="default" />
@@ -363,14 +363,14 @@ export default function DatasetAnalyzer() {
                 <div className="grid gap-4 lg:grid-cols-2">
                   <OutcomeCard
                     title="Before correction"
-                    score={analysis.result.fairness_summary.overall_fairness_score}
-                    risk={analysis.result.fairness_summary.risk_level}
+                    score={analysis.result?.fairness_summary?.overall_fairness_score ?? 0}
+                    risk={analysis.result?.fairness_summary?.risk_level ?? "unknown"}
                     note="Raw audit result before remediation preview."
                   />
                   <OutcomeCard
                     title="After correction"
-                    score={typeof correctedScore === "number" ? correctedScore : analysis.result.fairness_summary.overall_fairness_score}
-                    risk={analysis.result.artifacts?.corrected_fairness_summary?.risk_level || analysis.result.fairness_summary.risk_level}
+                    score={typeof correctedScore === "number" ? correctedScore : (analysis.result?.fairness_summary?.overall_fairness_score ?? 0)}
+                    risk={analysis.result?.artifacts?.corrected_fairness_summary?.risk_level || (analysis.result?.fairness_summary?.risk_level ?? "unknown")}
                     note={
                       typeof correctedScore === "number" && correctedScore >= targetScore
                         ? `${targetScore}+ target crossed in corrected output.`
@@ -381,24 +381,24 @@ export default function DatasetAnalyzer() {
 
                 <div className="terminal-card p-5">
                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Executive summary</p>
-                  <p className="mt-3 text-sm leading-7 text-muted-foreground">{analysis.result.explanation.executive_summary}</p>
+                  <p className="mt-3 text-sm leading-7 text-muted-foreground">{analysis.result?.explanation?.executive_summary}</p>
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">
                   <SignalPanel
                     title="Detected setup"
                     items={[
-                      `Domain: ${analysis.result.metadata.domain}`,
-                      `Target column: ${analysis.result.metadata.target_column ?? "auto-generated"}`,
-                      `Prediction column: ${analysis.result.metadata.prediction_column ?? "auto-generated"}`,
-                      `Sensitive columns: ${analysis.result.metadata.sensitive_columns.join(", ")}`,
+                      `Domain: ${analysis.result?.metadata?.domain ?? "unknown"}`,
+                      `Target column: ${analysis.result?.metadata?.target_column ?? "auto-generated"}`,
+                      `Prediction column: ${analysis.result?.metadata?.prediction_column ?? "auto-generated"}`,
+                      `Sensitive columns: ${analysis.result?.metadata?.sensitive_columns?.join(", ") ?? "none detected"}`,
                     ]}
                   />
                   <SignalPanel
                     title="Analysis summary"
                     items={[
-                      `Rows analyzed: ${analysis.result.metadata.rows}`,
-                      `Risk level: ${analysis.result.fairness_summary.risk_level}`,
+                      `Rows analyzed: ${analysis.result?.metadata?.rows ?? 0}`,
+                      `Risk level: ${analysis.result?.fairness_summary?.risk_level ?? "unknown"}`,
                       `Worst original attribute: ${worstFinding?.sensitive_column ?? "none"}`,
                       `Worst corrected attribute: ${correctedWorst?.sensitive_column ?? "not generated"}`,
                     ]}
@@ -425,23 +425,23 @@ export default function DatasetAnalyzer() {
               <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
                 <div className="space-y-3">
                   {history.map((item) => {
-                    const itemCorrected = getCorrectedScore(item) ?? item.result.fairness_summary.overall_fairness_score;
+                    const itemCorrected = getCorrectedScore(item) ?? item.result?.fairness_summary?.overall_fairness_score ?? 0;
 
                     return (
                       <button
                         key={item.id}
                         onClick={() => inspectAnalysis(item)}
                         className={`w-full border p-4 text-left transition ${
-                          item.id === analysis.id
+                          analysis && item.id === analysis.id
                             ? "border-emerald-500/40 bg-emerald-500/10"
                             : "border-white/10 bg-black/20 hover:border-emerald-500/30 hover:bg-white/5"
                         }`}
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div>
-                            <p className="font-medium text-white">{item.input.fileName}</p>
+                            <p className="font-medium text-white">{item.input?.fileName ?? "Unnamed Dataset"}</p>
                             <p className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                              {item.result.metadata.domain} | {formatRelativeTime(item.createdAt)}
+                              {item.result?.metadata?.domain ?? "unknown"} | {formatRelativeTime(item.createdAt)}
                             </p>
                           </div>
                           <div className="text-right">
@@ -488,7 +488,7 @@ export default function DatasetAnalyzer() {
                   <div className="terminal-card p-5">
                     <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Plain language summary</p>
                     <div className="mt-4 space-y-3">
-                      {analysis.result.explanation.plain_language.map((line) => (
+                      {analysis.result?.explanation?.plain_language?.map((line) => (
                         <p key={line} className="text-sm text-muted-foreground">
                           {line}
                         </p>
@@ -640,11 +640,11 @@ function FindingCard({ title, finding }: { title: string; finding: SensitiveFind
         <p>DP gap: {finding.demographic_parity_difference}</p>
       </div>
       <div className="mt-4 space-y-2">
-        {finding.notes.map((note) => (
+        {finding.notes?.map((note) => (
           <p key={note} className="text-sm text-muted-foreground">
             - {note}
           </p>
-        ))}
+        )) ?? <p className="text-sm text-muted-foreground opacity-50">No additional notes.</p>}
       </div>
     </div>
   );

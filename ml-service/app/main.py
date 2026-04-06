@@ -113,6 +113,8 @@ COMMON_SENSITIVE_NAMES = [
     "location",
     "region",
     "disability",
+    "protected",
+    "sensitive",
 ]
 DOMAIN_HINTS = {
     "hiring": ["candidate", "resume", "hiring", "salary", "selected", "interview", "department"],
@@ -375,7 +377,7 @@ def optimize_dataframe_memory(df: pd.DataFrame) -> pd.DataFrame:
     for column in df.select_dtypes(include=["object"]).columns:
         unique_ratio = df[column].nunique(dropna=False) / max(1, len(df))
         if unique_ratio < 0.5:
-            df[column] = df[column].astype("string")
+            df[column] = df[column].astype(object).where(df[column].notna(), np.nan)
     return df
 
 
@@ -854,10 +856,10 @@ def infer_domain(df: pd.DataFrame, requested_domain: str) -> str:
 
 
 def infer_target_column(df: pd.DataFrame) -> Optional[str]:
-    lowered = {col.lower(): col for col in df.columns}
-    for name in COMMON_TARGET_NAMES:
-        if name in lowered:
-            return lowered[name]
+    for col in df.columns:
+        lowered_col = col.lower()
+        if any(name in lowered_col for name in COMMON_TARGET_NAMES):
+            return col
     candidates = []
     for col in df.columns:
         series = df[col].dropna()
@@ -874,17 +876,23 @@ def infer_target_column(df: pd.DataFrame) -> Optional[str]:
 
 
 def infer_prediction_column(df: pd.DataFrame) -> Optional[str]:
-    lowered = {col.lower(): col for col in df.columns}
-    for name in COMMON_PREDICTION_NAMES:
-        if name in lowered:
-            return lowered[name]
+    for col in df.columns:
+        lowered_col = col.lower()
+        if any(name in lowered_col for name in COMMON_PREDICTION_NAMES):
+            return col
     return None
 
 
 def infer_sensitive_columns(df: pd.DataFrame, domain: str) -> List[str]:
-    matches = [col for col in df.columns if col.lower() in COMMON_SENSITIVE_NAMES]
+    matches = []
+    for col in df.columns:
+        lowered = col.lower()
+        if any(name in lowered for name in COMMON_SENSITIVE_NAMES):
+            matches.append(col)
+    
     if domain == "hiring":
-        matches += [col for col in df.columns if col.lower() in {"education_level", "marital_status"}]
+        matches += [col for col in df.columns if any(h in col.lower() for h in {"education", "marital"})]
+        
     return list(dict.fromkeys(matches))[:3]
 
 
@@ -893,7 +901,8 @@ def fallback_sensitive_columns(df: pd.DataFrame) -> List[str]:
     for col in df.columns:
         series = df[col].dropna()
         unique = series.nunique()
-        if 2 <= unique <= 10 and str(series.dtype) in {"object", "string"}:
+        # Relax constraint to include numeric binary/categorical columns (e.g. 0/1)
+        if 2 <= unique <= 10:
             candidates.append(col)
     return candidates[:2]
 
@@ -974,6 +983,28 @@ def fit_binary_xgboost_bundle(
             "strategy": "none",
             "group_columns": [],
             "notes": ["Reweighing was intentionally disabled for the explainability surrogate."],
+        }
+
+    if y_train.nunique() < 2:
+        class_val = float(y_train.iloc[0]) if not y_train.empty else 0.0
+        probabilities = np.full(len(X), class_val)
+        reweighing_summary = {
+            "applied": False,
+            "strategy": "none",
+            "group_columns": [],
+            "notes": ["Target has only one class; skipped surrogate training."],
+        }
+        return np.where(probabilities >= 0.5, 1, 0), probabilities, reweighing_summary, {
+            "pipeline": None,
+            "compactors": compactors,
+            "feature_columns": X.columns.tolist(),
+            "numeric_columns": X_train.select_dtypes(include=[np.number]).columns.tolist(),
+            "categorical_columns": [col for col in X_train.columns if col not in X_train.select_dtypes(include=[np.number]).columns.tolist()],
+            "training_rows_used": int(len(sampled)),
+            "prediction_target_column": sample_target_name,
+            "model_source": model_source,
+            "explanation_basis": "Insufficient target variance for surrogate model training.",
+            "note": "Skipped model training because the target has only one unique value.",
         }
 
     model = build_model_pipeline(X_train, y_train)
