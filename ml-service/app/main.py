@@ -1,154 +1,101 @@
+"""FairAI ML Service v2.0 — Production-grade fairness-aware ML system.
+
+Architecture:
+- core/          → constants, utilities, column inference
+- core/pipeline  → ML pipeline (split, tune, calibrate, evaluate)
+- fairness/      → structured metrics, constrained optimization, intersectional
+- explain/       → SHAP explainability with category-level preservation
+
+Key improvements over v1:
+1. Proper train/val/test split (70/15/15) — no data leakage
+2. RandomizedSearchCV hyperparameter tuning
+3. Isotonic probability calibration
+4. Constrained optimization (COBYLA) replaces heuristic corrections
+5. Structured fairness metrics (DI, DP, EO, TPR/FPR gaps) replace fake score
+6. Before/after validation on held-out test set
+7. SHAP category-level importance (one-hot features preserved)
+8. Fairness-accuracy tradeoff curve
+9. Full evaluation metrics (accuracy, precision, recall, F1, ROC-AUC, confusion matrix)
+"""
 from __future__ import annotations
 
-import io
 import json
 import os
-import urllib.error
-import urllib.request
 from datetime import datetime, timedelta
-from itertools import combinations
 from pathlib import Path
-from threading import Lock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
 
-try:
-    from xgboost import DMatrix, XGBClassifier
+from app.core import (
+    SERVICE_VERSION,
+    RANDOM_SEED,
+    infer_domain,
+    infer_prediction_column,
+    infer_sensitive_columns,
+    infer_target_column,
+    fallback_sensitive_columns,
+    is_probability_like,
+    load_dataframe,
+    normalize_binary,
+    optimize_dataframe_memory,
+    parse_positive_label,
+    score_to_risk,
+    LARGE_DATASET_ROWS,
+    MAX_TRAIN_ROWS,
+    MAX_PROXY_SCAN_ROWS,
+    GEMINI_MODEL,
+)
+from app.core.pipeline import (
+    XGBOOST_AVAILABLE,
+    XGBOOST_IMPORT_ERROR,
+    predict_in_batches,
+    train_production_pipeline,
+)
+from app.fairness.metrics import (
+    build_intersectional_findings,
+    build_intersectional_root_causes,
+    build_root_causes,
+    compute_overall_fairness_summary,
+    compute_structured_fairness_metrics,
+)
+from app.fairness.optimization import (
+    build_corrected_dataset,
+    compute_tradeoff_curve,
+)
+from app.explain.shap_explain import (
+    SHAP_AVAILABLE,
+    build_explainability,
+    build_proxy_explainability,
+)
 
-    XGBOOST_AVAILABLE = True
-    XGBOOST_IMPORT_ERROR = ""
-except Exception as exc:  # pragma: no cover - import-time environment specific
-    DMatrix = None  # type: ignore[assignment]
-    XGBClassifier = None  # type: ignore[assignment]
-    XGBOOST_AVAILABLE = False
-    XGBOOST_IMPORT_ERROR = str(exc)
 
-try:
-    import shap
-
-    SHAP_AVAILABLE = True
-    SHAP_IMPORT_ERROR = ""
-except Exception as exc:  # pragma: no cover - import-time environment specific
-    shap = None  # type: ignore[assignment]
-    SHAP_AVAILABLE = False
-    SHAP_IMPORT_ERROR = str(exc)
-
-try:
-    from pyspark.sql import SparkSession
-    from pyspark.sql import functions as spark_functions
-    from pyspark.sql.window import Window
-
-    PYSPARK_AVAILABLE = True
-    PYSPARK_IMPORT_ERROR = ""
-except Exception as exc:  # pragma: no cover - import-time environment specific
-    SparkSession = None  # type: ignore[assignment]
-    Window = None  # type: ignore[assignment]
-    spark_functions = None  # type: ignore[assignment]
-    PYSPARK_AVAILABLE = False
-    PYSPARK_IMPORT_ERROR = str(exc)
-
-SERVICE_VERSION = "1.3.0"
-
-
+# ---------------------------------------------------------------------------
+# Environment loading
+# ---------------------------------------------------------------------------
 def load_local_env_file() -> None:
     env_path = Path(__file__).resolve().parent.parent / ".env"
     if not env_path.exists():
         return
-
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-
         key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip("'").strip('"')
+        key, value = key.strip(), value.strip().strip("'").strip('"')
         if key:
             os.environ.setdefault(key, value)
 
 
 load_local_env_file()
 
+# ---------------------------------------------------------------------------
+# FastAPI app
+# ---------------------------------------------------------------------------
 app = FastAPI(title="FairAI ML Service", version=SERVICE_VERSION)
-
-COMMON_TARGET_NAMES = [
-    "target",
-    "label",
-    "outcome",
-    "approved",
-    "selected",
-    "decision",
-    "hired",
-    "default",
-    "churn",
-    "status",
-]
-COMMON_PREDICTION_NAMES = [
-    "corrected_prediction",
-    "corrected_probability",
-    "prediction",
-    "predicted",
-    "score",
-    "model_prediction",
-    "y_pred",
-    "risk_score",
-]
-COMMON_SENSITIVE_NAMES = [
-    "gender",
-    "sex",
-    "race",
-    "ethnicity",
-    "age",
-    "age_group",
-    "religion",
-    "marital_status",
-    "location",
-    "region",
-    "disability",
-    "protected",
-    "sensitive",
-]
-DOMAIN_HINTS = {
-    "hiring": ["candidate", "resume", "hiring", "salary", "selected", "interview", "department"],
-    "finance": ["loan", "credit", "interest", "income", "default", "limit", "balance"],
-    "healthcare": ["patient", "diagnosis", "treatment", "admission", "clinical", "hospital", "disease"],
-}
-
-LARGE_DATASET_ROWS = 250_000
-MAX_TRAIN_ROWS = 120_000
-MAX_PROXY_SCAN_ROWS = 50_000
-MAX_CATEGORY_LEVELS = 25
-PREDICTION_BATCH_ROWS = 100_000
-RANDOM_SEED = 42
-MAX_INTERSECTIONAL_COMPONENTS = 3
-MAX_INTERSECTIONAL_FINDINGS = 4
-REWEIGHING_WEIGHT_CLIP_MIN = 0.35
-REWEIGHING_WEIGHT_CLIP_MAX = 4.0
-MIN_REWEIGHING_CELL_COUNT = 5
-SHAP_SAMPLE_ROWS = 200
-GLOBAL_SHAP_FEATURE_LIMIT = 10
-LOCAL_EXPLANATION_LIMIT = 3
-LOCAL_CONTRIBUTOR_LIMIT = 4
-GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
-GEMINI_MODEL = os.getenv("FAIRAI_GEMINI_MODEL", "gemini-2.0-flash")
-SPARK_ENABLED = os.getenv("FAIRAI_SPARK_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
-SPARK_MASTER = os.getenv("FAIRAI_SPARK_MASTER", "local[*]")
-SPARK_APP_NAME = "FairAI-ML-Service"
-SPARK_SHUFFLE_PARTITIONS = os.getenv("FAIRAI_SPARK_SHUFFLE_PARTITIONS", "8")
-SPARK_DRIVER_HOST = os.getenv("FAIRAI_SPARK_DRIVER_HOST", "127.0.0.1")
-SPARK_DRIVER_BIND_ADDRESS = os.getenv("FAIRAI_SPARK_DRIVER_BIND_ADDRESS", "0.0.0.0")
-
-_SPARK_SESSION: Any = None
-_SPARK_SESSION_LOCK = Lock()
-_SPARK_RUNTIME_ERROR: Optional[str] = None
 
 
 class MitigationPreviewRequest(BaseModel):
@@ -165,15 +112,16 @@ def health() -> Dict[str, Any]:
         "ok": True,
         "service": "ml-service",
         "version": SERVICE_VERSION,
-        "correction_engine": "advanced_hybrid",
+        "correction_engine": "constrained_optimization",
         "surrogate_model": "xgboost",
-        "fairness_extensions": ["intersectional_fairness", "training_reweighing"],
+        "fairness_extensions": ["intersectional_fairness", "training_reweighing", "tradeoff_curve"],
         "xgboost_available": XGBOOST_AVAILABLE,
         "xgboost_import_error": XGBOOST_IMPORT_ERROR or None,
         "shap_available": SHAP_AVAILABLE,
-        "shap_import_error": SHAP_IMPORT_ERROR or None,
-        "spark": spark_runtime_status(),
+        "spark": {"configured": False, "available": False, "session_active": False,
+                  "import_error": None, "runtime_error": None},
     }
+
 
 @app.post("/analyze/file")
 async def analyze_file(
@@ -188,7 +136,7 @@ async def analyze_file(
     try:
         sensitive = json.loads(sensitive_columns) if sensitive_columns else []
     except json.JSONDecodeError:
-        sensitive = [item.strip() for item in sensitive_columns.split(",") if item.strip()]
+        sensitive = [s.strip() for s in sensitive_columns.split(",") if s.strip()]
 
     content = await file.read()
     df = load_dataframe(file.filename or "data.csv", content)
@@ -212,10 +160,8 @@ def mitigation_preview(payload: MitigationPreviewRequest) -> Dict[str, Any]:
     current_score = float(payload.fairness_summary.get("overall_fairness_score", 0))
     strategy = payload.strategy.lower()
     strategy_lift = {
-        "reweighing": 8,
-        "threshold_optimization": 6,
-        "adversarial_debiasing": 12,
-        "resampling": 7,
+        "reweighing": 8, "threshold_optimization": 6,
+        "adversarial_debiasing": 12, "resampling": 7,
     }.get(strategy, 5)
 
     projected_score = min(100.0, current_score + strategy_lift)
@@ -223,13 +169,13 @@ def mitigation_preview(payload: MitigationPreviewRequest) -> Dict[str, Any]:
     for item in payload.sensitive_findings:
         current = float(item.get("fairness_score", 0))
         improved = min(100.0, current + strategy_lift)
-        findings.append(
-            {
-                **item,
-                "projected_fairness_score": round(improved, 2),
-                "projected_disparate_impact": round(min(1.0, float(item.get("disparate_impact", 0)) + (strategy_lift / 100)), 3),
-            }
-        )
+        findings.append({
+            **item,
+            "projected_fairness_score": round(improved, 2),
+            "projected_disparate_impact": round(
+                min(1.0, float(item.get("disparate_impact", 0)) + (strategy_lift / 100)), 3,
+            ),
+        })
 
     steps = [
         "Rebalance or reweight training data for impacted groups.",
@@ -249,315 +195,13 @@ def mitigation_preview(payload: MitigationPreviewRequest) -> Dict[str, Any]:
         "execution_steps": steps,
         "operational_notes": [
             "Preview is heuristic and should be validated on a holdout set.",
-            "A fairness score above 95 depends on the actual dataset, group imbalance, and target quality.",
         ],
     }
 
 
-def spark_runtime_status() -> Dict[str, Any]:
-    return {
-        "configured": SPARK_ENABLED,
-        "available": PYSPARK_AVAILABLE,
-        "session_active": _SPARK_SESSION is not None,
-        "import_error": PYSPARK_IMPORT_ERROR or None,
-        "runtime_error": _SPARK_RUNTIME_ERROR,
-    }
-
-
-def get_spark_session() -> Any:
-    global _SPARK_RUNTIME_ERROR, _SPARK_SESSION
-
-    if not SPARK_ENABLED or not PYSPARK_AVAILABLE:
-        return None
-    if _SPARK_SESSION is not None:
-        return _SPARK_SESSION
-    if _SPARK_RUNTIME_ERROR:
-        return None
-
-    with _SPARK_SESSION_LOCK:
-        if _SPARK_SESSION is not None:
-            return _SPARK_SESSION
-        if _SPARK_RUNTIME_ERROR:
-            return None
-
-        try:
-            session = (
-                SparkSession.builder.appName(SPARK_APP_NAME)
-                .master(SPARK_MASTER)
-                .config("spark.ui.enabled", "false")
-                .config("spark.sql.shuffle.partitions", SPARK_SHUFFLE_PARTITIONS)
-                .config("spark.sql.execution.arrow.pyspark.enabled", "true")
-                .config("spark.driver.host", SPARK_DRIVER_HOST)
-                .config("spark.driver.bindAddress", SPARK_DRIVER_BIND_ADDRESS)
-                .getOrCreate()
-            )
-            session.sparkContext.setLogLevel("ERROR")
-            _SPARK_SESSION = session
-        except Exception as exc:  # pragma: no cover - depends on Java/Spark runtime
-            _SPARK_RUNTIME_ERROR = str(exc)
-            return None
-
-    return _SPARK_SESSION
-
-
-def prepare_pandas_for_spark(df: pd.DataFrame) -> pd.DataFrame:
-    prepared = df.copy()
-    for column in prepared.columns:
-        if pd.api.types.is_string_dtype(prepared[column]) or pd.api.types.is_object_dtype(prepared[column]):
-            prepared[column] = prepared[column].astype(object).where(prepared[column].notna(), None)
-    return prepared
-
-
-def spark_sample_frame(df: pd.DataFrame, max_rows: int, stratify_column: Optional[str] = None) -> Optional[pd.DataFrame]:
-    if len(df) < LARGE_DATASET_ROWS:
-        return None
-
-    spark = get_spark_session()
-    if spark is None:
-        return None
-
-    try:
-        prepared = prepare_pandas_for_spark(df)
-        spark_df = spark.createDataFrame(prepared)
-
-        if stratify_column and stratify_column in prepared.columns:
-            quotas = []
-            normalized = prepared[stratify_column].astype("string").fillna("__MISSING__")
-            for value, count in normalized.value_counts(dropna=False).items():
-                take = max(1, int(round(max_rows * (int(count) / len(prepared)))))
-                quotas.append((str(value), int(min(int(count), take))))
-
-            quota_df = spark.createDataFrame(quotas, ["__strata__", "__quota__"])
-            sampled = (
-                spark_df.withColumn(
-                    "__strata__",
-                    spark_functions.coalesce(spark_functions.col(stratify_column).cast("string"), spark_functions.lit("__MISSING__")),
-                )
-                .join(quota_df, on="__strata__", how="left")
-                .withColumn(
-                    "__row_num__",
-                    spark_functions.row_number().over(Window.partitionBy("__strata__").orderBy(spark_functions.rand(seed=RANDOM_SEED))),
-                )
-                .filter(spark_functions.col("__row_num__") <= spark_functions.col("__quota__"))
-                .drop("__strata__", "__quota__", "__row_num__")
-            )
-        else:
-            sample_fraction = min(1.0, max_rows / len(prepared))
-            sampled = spark_df.sample(withReplacement=False, fraction=sample_fraction, seed=RANDOM_SEED).limit(max_rows)
-
-        sampled_df = sampled.toPandas()
-        if sampled_df.empty:
-            return None
-        if len(sampled_df) > max_rows:
-            sampled_df = sampled_df.sample(max_rows, random_state=RANDOM_SEED)
-        return sampled_df.reindex(columns=df.columns, fill_value=None)
-    except Exception:  # pragma: no cover - Spark runtime failures are environment-specific
-        return None
-
-
-def load_dataframe(filename: str, content: bytes) -> pd.DataFrame:
-    lower = filename.lower()
-    buffer = io.BytesIO(content)
-    if lower.endswith(".csv"):
-        return pd.read_csv(buffer)
-    if lower.endswith(".xlsx") or lower.endswith(".xls"):
-        return pd.read_excel(buffer)
-    if lower.endswith(".json"):
-        return pd.read_json(buffer)
-    if lower.endswith(".parquet"):
-        return pd.read_parquet(buffer)
-    raise HTTPException(status_code=400, detail="Unsupported file format. Use CSV, XLSX, JSON, or Parquet.")
-
-
-def optimize_dataframe_memory(df: pd.DataFrame) -> pd.DataFrame:
-    for column in df.select_dtypes(include=["int", "int64", "int32", "uint64", "uint32"]).columns:
-        df[column] = pd.to_numeric(df[column], downcast="integer")
-    for column in df.select_dtypes(include=["float", "float64", "float32"]).columns:
-        df[column] = pd.to_numeric(df[column], downcast="float")
-    for column in df.select_dtypes(include=["object"]).columns:
-        unique_ratio = df[column].nunique(dropna=False) / max(1, len(df))
-        if unique_ratio < 0.5:
-            df[column] = df[column].astype(object).where(df[column].notna(), np.nan)
-    return df
-
-
-def sample_frame(df: pd.DataFrame, max_rows: int, stratify_column: Optional[str] = None) -> pd.DataFrame:
-    if len(df) <= max_rows:
-        return df.copy()
-
-    spark_sampled = spark_sample_frame(df, max_rows, stratify_column)
-    if spark_sampled is not None and not spark_sampled.empty:
-        return spark_sampled
-
-    if stratify_column and stratify_column in df.columns:
-        sampled_parts = []
-        normalized = df[stratify_column].astype(str)
-        for _, subset in df.groupby(normalized, dropna=False):
-            fraction = len(subset) / len(df)
-            take = max(1, int(round(max_rows * fraction)))
-            sampled_parts.append(subset.sample(min(take, len(subset)), random_state=RANDOM_SEED))
-        sampled = pd.concat(sampled_parts).drop_duplicates()
-        if len(sampled) > max_rows:
-            sampled = sampled.sample(max_rows, random_state=RANDOM_SEED)
-        return sampled
-    return df.sample(max_rows, random_state=RANDOM_SEED)
-
-
-def fit_category_compactors(X: pd.DataFrame) -> Dict[str, set[str]]:
-    compactors: Dict[str, set[str]] = {}
-    for column in X.columns:
-        if pd.api.types.is_numeric_dtype(X[column]):
-            continue
-        top_values = X[column].astype(str).value_counts().head(MAX_CATEGORY_LEVELS).index.tolist()
-        if X[column].nunique(dropna=False) > MAX_CATEGORY_LEVELS:
-            compactors[column] = set(top_values)
-    return compactors
-
-
-def apply_category_compactors(X: pd.DataFrame, compactors: Dict[str, set[str]]) -> pd.DataFrame:
-    transformed = X.copy()
-    for column, allowed in compactors.items():
-        transformed[column] = transformed[column].astype(str).where(
-            transformed[column].astype(str).isin(allowed),
-            "__OTHER__",
-        )
-    return transformed
-
-
-def build_intersectional_group_labels(df: pd.DataFrame, columns: List[str]) -> pd.Series:
-    available = [column for column in columns if column in df.columns]
-    if not available:
-        return pd.Series(["__ALL__"] * len(df), index=df.index, dtype="string")
-
-    combined = available[0] + "=" + df[available[0]].astype("string").fillna("__MISSING__")
-    for column in available[1:]:
-        combined = combined + " | " + column + "=" + df[column].astype("string").fillna("__MISSING__")
-    return combined.astype("string")
-
-
-def build_intersectional_findings(
-    df: pd.DataFrame,
-    sensitive_columns: List[str],
-    prediction_column: str,
-    target_column: Optional[str],
-    positive_label: Any,
-) -> List[Dict[str, Any]]:
-    available = [column for column in sensitive_columns if column in df.columns][:MAX_INTERSECTIONAL_COMPONENTS]
-    if len(available) < 2:
-        return []
-
-    combos = list(combinations(available, 2))
-    if len(available) > 2:
-        combos.append(tuple(available))
-
-    findings: List[Dict[str, Any]] = []
-    for combo in combos[:MAX_INTERSECTIONAL_FINDINGS]:
-        intersectional_name = " x ".join(combo)
-        temp_column = "__intersectional__" + "__".join(combo)
-        frame = pd.DataFrame(
-            {
-                temp_column: build_intersectional_group_labels(df, list(combo)),
-                prediction_column: df[prediction_column],
-            },
-            index=df.index,
-        )
-        if target_column and target_column in df.columns:
-            frame[target_column] = df[target_column]
-
-        finding = analyze_sensitive_column(frame, temp_column, prediction_column, target_column, positive_label)
-        if len(finding.get("group_metrics", [])) < 2:
-            continue
-
-        finding["sensitive_column"] = intersectional_name
-        finding["component_sensitive_columns"] = list(combo)
-        finding["is_intersectional"] = True
-        finding["notes"] = [
-            *finding.get("notes", []),
-            f"Intersectional slice built from {', '.join(combo)}.",
-        ]
-        findings.append(finding)
-
-    return findings
-
-
-def blend_fairness_score(primary_findings: List[Dict[str, Any]], intersectional_findings: List[Dict[str, Any]]) -> float:
-    if not primary_findings and not intersectional_findings:
-        return 100.0
-    if not intersectional_findings:
-        return round(float(np.mean([item["fairness_score"] for item in primary_findings])), 2)
-
-    primary_average = float(np.mean([item["fairness_score"] for item in primary_findings])) if primary_findings else 100.0
-    intersectional_average = float(np.mean([item["fairness_score"] for item in intersectional_findings]))
-    worst_intersectional = float(min(item["fairness_score"] for item in intersectional_findings))
-    blended = (primary_average * 0.55) + (intersectional_average * 0.25) + (worst_intersectional * 0.20)
-    return round(max(0.0, min(100.0, blended)), 2)
-
-
-def compute_reweighing_weights(X: pd.DataFrame, y: pd.Series, sensitive_columns: List[str]) -> Tuple[pd.Series, Dict[str, Any]]:
-    available = [column for column in sensitive_columns if column in X.columns]
-    default_weights = pd.Series(np.ones(len(y), dtype=float), index=y.index)
-
-    if not available:
-        return default_weights, {
-            "applied": False,
-            "strategy": "intersectional_reweighing",
-            "group_columns": [],
-            "notes": ["No sensitive columns were available for training-time reweighing."],
-        }
-
-    group_labels = build_intersectional_group_labels(X, available).astype(str)
-    working = pd.DataFrame(
-        {
-            "__group__": group_labels,
-            "__label__": y.astype(int),
-        },
-        index=y.index,
-    )
-
-    total = len(working)
-    if total == 0:
-        return default_weights, {
-            "applied": False,
-            "strategy": "intersectional_reweighing",
-            "group_columns": available,
-            "notes": ["Training sample was empty, so reweighing was skipped."],
-        }
-
-    group_counts = working["__group__"].value_counts()
-    label_counts = working["__label__"].value_counts()
-    joint_counts = working.groupby(["__group__", "__label__"]).size()
-    weights = pd.Series(np.ones(total, dtype=float), index=working.index)
-
-    for (group_name, label_value), joint_count in joint_counts.items():
-        if joint_count <= 0:
-            continue
-
-        raw_weight = (group_counts[group_name] * label_counts[label_value]) / max(total * joint_count, 1)
-        if joint_count < MIN_REWEIGHING_CELL_COUNT:
-            raw_weight = (raw_weight + 1.0) / 2.0
-
-        mask = (working["__group__"] == group_name) & (working["__label__"] == label_value)
-        weights.loc[mask] = raw_weight
-
-    weights = weights.clip(REWEIGHING_WEIGHT_CLIP_MIN, REWEIGHING_WEIGHT_CLIP_MAX)
-    weights = weights / max(float(weights.mean()), 1e-9)
-    dominant_group = str(group_counts.index[0]) if not group_counts.empty else "__UNKNOWN__"
-
-    return weights, {
-        "applied": True,
-        "strategy": "intersectional_reweighing",
-        "group_columns": available,
-        "group_count": int(group_counts.shape[0]),
-        "dominant_group": dominant_group,
-        "weight_min": round(float(weights.min()), 4),
-        "weight_max": round(float(weights.max()), 4),
-        "weight_mean": round(float(weights.mean()), 4),
-        "notes": [
-            "Training-time reweighing balanced label frequencies across intersectional sensitive groups.",
-        ],
-    }
-
-
+# ---------------------------------------------------------------------------
+# Core analysis entry point
+# ---------------------------------------------------------------------------
 def analyze_dataframe(
     df: pd.DataFrame,
     requested_domain: str,
@@ -572,186 +216,184 @@ def analyze_dataframe(
     df.columns = [str(col).strip() for col in df.columns]
     resolved_domain = infer_domain(df, requested_domain)
     large_dataset_mode = len(df) >= LARGE_DATASET_ROWS
-    precorrected_upload = "corrected_prediction" in df.columns or "correction_method" in df.columns
+    precorrected_upload = "corrected_prediction" in df.columns
 
+    # Infer columns
     inferred_target = target_column or infer_target_column(df)
-    inferred_prediction = prediction_column or ("corrected_prediction" if "corrected_prediction" in df.columns else infer_prediction_column(df))
+    inferred_prediction = prediction_column or (
+        "corrected_prediction" if "corrected_prediction" in df.columns
+        else infer_prediction_column(df)
+    )
     inferred_sensitive = sensitive_columns or infer_sensitive_columns(df, resolved_domain)
-    inferred_sensitive = [col for col in inferred_sensitive if col in df.columns]
-
+    inferred_sensitive = [c for c in inferred_sensitive if c in df.columns]
     if not inferred_sensitive:
         inferred_sensitive = fallback_sensitive_columns(df)
     if not inferred_sensitive:
         raise HTTPException(status_code=400, detail="Unable to infer sensitive columns from the dataset.")
-
-    score_series: Optional[pd.Series] = None
-    used_surrogate_model = False
-    score_column: Optional[str] = None
-    explainability_bundle: Optional[Dict[str, Any]] = None
-    reweighing_summary: Dict[str, Any] = {
-        "applied": False,
-        "strategy": "intersectional_reweighing",
-        "group_columns": [],
-        "notes": ["Reweighing was not used for this analysis path."],
-    }
-    training_rows_used = min(len(df), MAX_TRAIN_ROWS)
-    proxy_scan_rows_used = min(len(df), MAX_PROXY_SCAN_ROWS)
 
     if inferred_prediction and inferred_prediction not in df.columns:
         inferred_prediction = None
     if inferred_target and inferred_target not in df.columns:
         inferred_target = None
 
+    # --- ML PIPELINE ---
+    score_series: Optional[pd.Series] = None
+    used_surrogate_model = False
+    score_column: Optional[str] = None
+    explainability_bundle: Optional[Dict[str, Any]] = None
+    model_evaluation: Optional[Dict[str, Any]] = None
+    reweighing_summary: Dict[str, Any] = {
+        "applied": False, "strategy": "none", "group_columns": [],
+        "notes": ["Reweighing was not used for this analysis path."],
+    }
+    training_rows_used = min(len(df), MAX_TRAIN_ROWS)
+
     if not inferred_prediction:
         inferred_prediction = "_fairai_prediction"
         score_column = "_fairai_prediction_score"
         if inferred_target:
-            df[inferred_prediction], score_series, reweighing_summary, explainability_bundle = generate_supervised_predictions(
-                df,
-                inferred_target,
-                positive_label,
-                inferred_sensitive,
+            # Full production pipeline: split → tune → calibrate → evaluate
+            bundle = train_production_pipeline(
+                df, inferred_target, positive_label, inferred_sensitive,
+                apply_reweighing=True,
             )
+            df[inferred_prediction] = pd.Series(bundle["predictions"], index=df.index)
+            score_series = pd.Series(bundle["probabilities"], index=df.index)
+            reweighing_summary = bundle["reweighing_summary"]
+            model_evaluation = bundle["evaluation"]
+            explainability_bundle = bundle
+            training_rows_used = bundle["training_rows_used"]
         else:
-            df[inferred_prediction], score_series = generate_unsupervised_predictions(df, inferred_sensitive)
+            df[inferred_prediction], score_series = _generate_unsupervised_predictions(
+                df, inferred_sensitive,
+            )
         df[score_column] = score_series
         used_surrogate_model = True
     elif is_probability_like(df[inferred_prediction]):
         score_column = inferred_prediction
 
+    # Build explainability if not already built
     if explainability_bundle is None and inferred_prediction:
-        explainability_bundle = build_prediction_explainability_bundle(
-            df,
-            inferred_prediction,
-            inferred_target,
-            positive_label,
-            inferred_sensitive,
-        )
-    if explainability_bundle:
-        training_rows_used = int(explainability_bundle.get("training_rows_used", training_rows_used))
-
-    fairness_summary = {"overall_fairness_score": 100.0}
-    findings = [analyze_sensitive_column(df, sensitive, inferred_prediction, inferred_target, positive_label) for sensitive in inferred_sensitive]
-    intersectional_findings = build_intersectional_findings(
-        df,
-        inferred_sensitive,
-        inferred_prediction,
-        inferred_target,
-        positive_label,
-    )
-    if findings:
-        fairness_summary["overall_fairness_score"] = blend_fairness_score(findings, intersectional_findings)
-        fairness_summary["risk_level"] = score_to_risk(fairness_summary["overall_fairness_score"])
-        fairness_summary["intersectional_fairness_score"] = (
-            round(float(np.mean([item["fairness_score"] for item in intersectional_findings])), 2)
-            if intersectional_findings
-            else None
+        explainability_bundle = _build_prediction_explainability_bundle(
+            df, inferred_prediction, inferred_target, positive_label, inferred_sensitive,
         )
 
-    root_causes = build_root_causes(df, inferred_sensitive, inferred_target, inferred_prediction)
-    root_causes.extend(build_intersectional_root_causes(intersectional_findings))
-    recommendations = build_recommendations(findings + intersectional_findings, root_causes, reweighing_summary)
-    corrected_df, correction_summary = build_corrected_dataset(
-        df,
-        inferred_sensitive,
-        inferred_prediction,
-        inferred_target,
-        positive_label,
-        score_column,
-    )
-    corrected_csv = corrected_df.to_csv(index=False)
-    corrected_findings = [
-        analyze_sensitive_column(corrected_df, sensitive, "corrected_prediction", inferred_target, positive_label)
+    # --- FAIRNESS METRICS (BEFORE correction) ---
+    findings = [
+        compute_structured_fairness_metrics(
+            df, sensitive, inferred_prediction, inferred_target, positive_label,
+        )
         for sensitive in inferred_sensitive
     ]
-    corrected_intersectional_findings = build_intersectional_findings(
-        corrected_df,
-        inferred_sensitive,
-        "corrected_prediction",
-        inferred_target,
-        positive_label,
+    intersectional_findings = build_intersectional_findings(
+        df, inferred_sensitive, inferred_prediction, inferred_target, positive_label,
+    )
+
+    fairness_summary: Dict[str, Any] = {}
+    overall_score = compute_overall_fairness_summary(findings, intersectional_findings)
+    fairness_summary["overall_fairness_score"] = overall_score
+    fairness_summary["risk_level"] = score_to_risk(overall_score)
+    fairness_summary["intersectional_fairness_score"] = (
+        round(float(np.mean([f["fairness_score"] for f in intersectional_findings])), 2)
+        if intersectional_findings else None
+    )
+
+    # Root causes and recommendations
+    root_causes = build_root_causes(df, inferred_sensitive, inferred_target, inferred_prediction)
+    root_causes.extend(build_intersectional_root_causes(intersectional_findings))
+    recommendations = _build_recommendations(
+        findings + intersectional_findings, root_causes, reweighing_summary,
+    )
+
+    # --- CORRECTION via constrained optimization ---
+    corrected_df, correction_summary = build_corrected_dataset(
+        df, inferred_sensitive, inferred_prediction,
+        inferred_target, positive_label, score_column,
+        fairness_mode="balanced",
+    )
+    corrected_csv = corrected_df.to_csv(index=False)
+
+    # --- FAIRNESS METRICS (AFTER correction) ---
+    corrected_findings = [
+        compute_structured_fairness_metrics(
+            corrected_df, sensitive, "corrected_prediction", inferred_target, positive_label,
+        )
+        for sensitive in inferred_sensitive
+    ]
+    corrected_intersectional = build_intersectional_findings(
+        corrected_df, inferred_sensitive, "corrected_prediction",
+        inferred_target, positive_label,
     )
     corrected_score = (
-        blend_fairness_score(corrected_findings, corrected_intersectional_findings)
+        compute_overall_fairness_summary(corrected_findings, corrected_intersectional)
         if corrected_findings
-        else float(fairness_summary["overall_fairness_score"])
+        else overall_score
     )
+
+    # --- VALIDATION: before vs after comparison ---
+    validation = _build_validation_comparison(
+        findings, corrected_findings,
+        intersectional_findings, corrected_intersectional,
+        overall_score, corrected_score,
+    )
+
+    # Populate fairness summary
     fairness_summary["corrected_fairness_score"] = corrected_score
     fairness_summary["overall_accuracy"] = round(
-        compute_overall_accuracy(df, inferred_target, inferred_prediction, positive_label),
-        4,
+        _compute_overall_accuracy(df, inferred_target, inferred_prediction, positive_label), 4,
     )
     fairness_summary["corrected_accuracy"] = round(
-        compute_overall_accuracy(corrected_df, inferred_target, "corrected_prediction", positive_label),
-        4,
+        _compute_overall_accuracy(corrected_df, inferred_target, "corrected_prediction", positive_label), 4,
     )
-    fairness_summary["disparate_impact"] = round(min((item["disparate_impact"] for item in findings), default=1.0), 4)
+    fairness_summary["disparate_impact"] = round(
+        min((f["disparate_impact"] for f in findings), default=1.0), 4,
+    )
     fairness_summary["corrected_disparate_impact"] = round(
-        min((item["disparate_impact"] for item in corrected_findings), default=1.0),
-        4,
+        min((f["disparate_impact"] for f in corrected_findings), default=1.0), 4,
     )
     fairness_summary["intersectional_corrected_fairness_score"] = (
-        round(float(np.mean([item["fairness_score"] for item in corrected_intersectional_findings])), 2)
-        if corrected_intersectional_findings
-        else None
+        round(float(np.mean([f["fairness_score"] for f in corrected_intersectional])), 2)
+        if corrected_intersectional else None
     )
     fairness_summary["fairness_target"] = 95.0
     fairness_summary["fairness_target_met"] = corrected_score >= 95.0
     fairness_summary["fairness_target_gap"] = round(max(0.0, 95.0 - corrected_score), 2)
-    spark_acceleration_active = large_dataset_mode and _SPARK_SESSION is not None
+
+    # --- TRADEOFF CURVE ---
+    tradeoff_curve = []
+    try:
+        tradeoff_curve = compute_tradeoff_curve(
+            df, inferred_sensitive, inferred_prediction,
+            inferred_target, positive_label, score_column, n_points=5,
+        )
+    except Exception:
+        pass
+
+    # --- EXPLAINABILITY ---
     explainability = build_explainability(
-        df=df,
-        prediction_column=inferred_prediction,
-        target_column=inferred_target,
-        sensitive_columns=inferred_sensitive,
-        source_name=source_name,
-        resolved_domain=resolved_domain,
-        fairness_summary=fairness_summary,
-        findings=findings,
-        model_bundle=explainability_bundle,
-        gemini_api_key=gemini_api_key,
+        df=df, prediction_column=inferred_prediction,
+        target_column=inferred_target, sensitive_columns=inferred_sensitive,
+        source_name=source_name, resolved_domain=resolved_domain,
+        fairness_summary=fairness_summary, findings=findings,
+        model_bundle=explainability_bundle, gemini_api_key=gemini_api_key,
     )
-    explanation = build_explanation(
-        resolved_domain,
-        source_name,
-        fairness_summary,
-        findings,
-        intersectional_findings,
-        root_causes,
-        reweighing_summary,
-        explainability,
+    explanation = _build_explanation(
+        resolved_domain, source_name, fairness_summary, findings,
+        intersectional_findings, root_causes, reweighing_summary, explainability,
     )
-    analysis_log = build_analysis_log(
-        source_name=source_name,
-        requested_domain=requested_domain,
-        resolved_domain=resolved_domain,
-        target_column=inferred_target,
-        prediction_column=inferred_prediction,
-        sensitive_columns=inferred_sensitive,
-        used_surrogate_model=used_surrogate_model,
-        fairness_score=float(fairness_summary["overall_fairness_score"]),
-        corrected_score=corrected_score,
-        large_dataset_mode=large_dataset_mode,
-        training_rows_used=training_rows_used,
-        correction_summary=correction_summary,
-        spark_acceleration_active=spark_acceleration_active,
-        reweighing_applied=bool(reweighing_summary.get("applied")),
-        intersectional_count=len(intersectional_findings),
+    analysis_log = _build_analysis_log(
+        source_name, requested_domain, resolved_domain,
+        inferred_target, inferred_prediction, inferred_sensitive,
+        used_surrogate_model, overall_score, corrected_score,
+        large_dataset_mode, training_rows_used, correction_summary,
+        False, bool(reweighing_summary.get("applied")),
+        len(intersectional_findings),
     )
-    report_markdown = build_report_markdown(
-        source_name=source_name,
-        resolved_domain=resolved_domain,
-        fairness_summary=fairness_summary,
-        findings=findings,
-        intersectional_findings=intersectional_findings,
-        corrected_findings=corrected_findings,
-        corrected_intersectional_findings=corrected_intersectional_findings,
-        root_causes=root_causes,
-        recommendations=recommendations,
-        analysis_log=analysis_log,
-        explainability=explainability,
-        correction_summary=correction_summary,
-        reweighing_summary=reweighing_summary,
+    report_markdown = _build_report_markdown(
+        source_name, resolved_domain, fairness_summary, findings,
+        intersectional_findings, corrected_findings, corrected_intersectional,
+        root_causes, recommendations, analysis_log, explainability,
+        correction_summary, reweighing_summary, model_evaluation, validation,
     )
 
     return {
@@ -769,12 +411,12 @@ def analyze_dataframe(
             "sensitive_auto_detected": len(sensitive_columns) == 0,
             "large_dataset_mode": large_dataset_mode,
             "training_rows_used": training_rows_used,
-            "proxy_scan_rows_used": proxy_scan_rows_used,
+            "proxy_scan_rows_used": min(len(df), MAX_PROXY_SCAN_ROWS),
             "correction_method": correction_summary["method"],
             "precorrected_upload": precorrected_upload,
             "surrogate_model": "xgboost" if used_surrogate_model else "user_supplied_predictions",
             "explainability_model_source": explainability.get("model_source"),
-            "spark_acceleration_active": spark_acceleration_active,
+            "spark_acceleration_active": False,
             "reweighing_applied": bool(reweighing_summary.get("applied")),
             "intersectional_analysis_enabled": bool(intersectional_findings),
             "intersectional_findings_count": len(intersectional_findings),
@@ -788,30 +430,19 @@ def analyze_dataframe(
             "generated_target": bool(inferred_target and inferred_target not in df.columns),
             "generated_prediction": used_surrogate_model,
             "notes": [
-                "Domain auto-detected from column names." if requested_domain in ("", "auto") else f"Domain fixed to {resolved_domain}.",
-                f"Sensitive columns inferred as {', '.join(inferred_sensitive)}.",
-                "Prediction column generated with an XGBoost surrogate model." if used_surrogate_model else f"Used prediction column '{inferred_prediction}'.",
-                "Training-time intersectional reweighing was applied to the XGBoost surrogate model."
-                if reweighing_summary.get("applied")
-                else "Training-time reweighing was not applied on this analysis path.",
-                f"Intersectional fairness audit evaluated {len(intersectional_findings)} combined slices."
-                if intersectional_findings
-                else "Intersectional fairness audit was skipped because fewer than two sensitive columns were available.",
-                "Large dataset mode enabled with Spark-assisted sampling and batched XGBoost scoring."
-                if spark_acceleration_active
-                else "Large dataset mode enabled with sampled training and batched scoring."
-                if large_dataset_mode
-                else "Standard dataset mode enabled.",
-                explainability.get("note", "Explainability summary was generated."),
-                f"Correction pipeline used {correction_summary['method']}.",
-                "Uploaded file already contained a corrected prediction and was re-audited without re-correcting the same decisions." if precorrected_upload else "Uploaded file was corrected during this analysis run.",
+                "Domain auto-detected." if requested_domain in ("", "auto") else f"Domain: {resolved_domain}.",
+                f"Sensitive columns: {', '.join(inferred_sensitive)}.",
+                "Prediction generated with XGBoost (tuned + calibrated)." if used_surrogate_model else f"Using prediction column '{inferred_prediction}'.",
+                "Training-time reweighing applied." if reweighing_summary.get("applied") else "Reweighing not applied.",
+                f"Intersectional audit: {len(intersectional_findings)} slices." if intersectional_findings else "Intersectional audit skipped (< 2 sensitive columns).",
+                f"Correction: {correction_summary['method']}.",
             ],
         },
         "fairness_summary": fairness_summary,
         "sensitive_findings": findings,
         "intersectional_findings": intersectional_findings,
         "corrected_sensitive_findings": corrected_findings,
-        "corrected_intersectional_findings": corrected_intersectional_findings,
+        "corrected_intersectional_findings": corrected_intersectional,
         "root_causes": root_causes,
         "recommendations": recommendations,
         "explanation": explanation,
@@ -826,13 +457,16 @@ def analyze_dataframe(
             "used_surrogate_model": used_surrogate_model,
             "large_dataset_mode": large_dataset_mode,
             "precorrected_upload": precorrected_upload,
-            "spark_acceleration_active": spark_acceleration_active,
+            "spark_acceleration_active": False,
             "surrogate_model": "xgboost" if used_surrogate_model else "user_supplied_predictions",
             "intersectional_findings_count": len(intersectional_findings),
             "reweighing_summary": reweighing_summary,
             "correction_summary": correction_summary,
         },
         "explainability": explainability,
+        "model_evaluation": model_evaluation,
+        "validation": validation,
+        "tradeoff_curve": tradeoff_curve,
         "correction_summary": correction_summary,
         "corrected_csv": corrected_csv,
         "report_markdown": report_markdown,
@@ -843,334 +477,12 @@ def analyze_dataframe(
     }
 
 
-def infer_domain(df: pd.DataFrame, requested_domain: str) -> str:
-    if requested_domain and requested_domain not in {"", "auto"}:
-        return requested_domain
-    joined = " ".join([str(col).lower() for col in df.columns])
-    scores = {
-        domain: sum(1 for hint in hints if hint in joined)
-        for domain, hints in DOMAIN_HINTS.items()
-    }
-    best_domain = max(scores, key=scores.get)
-    return best_domain if scores[best_domain] > 0 else "general"
-
-
-def infer_target_column(df: pd.DataFrame) -> Optional[str]:
-    for col in df.columns:
-        lowered_col = col.lower()
-        if any(name in lowered_col for name in COMMON_TARGET_NAMES):
-            return col
-    candidates = []
-    for col in df.columns:
-        series = df[col].dropna()
-        unique = series.nunique()
-        if 2 <= unique <= 6 and len(series) > 0:
-            score = 0
-            if series.dtype.kind in {"i", "u", "b", "f"}:
-                score += 2
-            if any(token in col.lower() for token in COMMON_TARGET_NAMES):
-                score += 3
-            score += max(0, 6 - unique)
-            candidates.append((score, col))
-    return sorted(candidates, reverse=True)[0][1] if candidates else None
-
-
-def infer_prediction_column(df: pd.DataFrame) -> Optional[str]:
-    for col in df.columns:
-        lowered_col = col.lower()
-        if any(name in lowered_col for name in COMMON_PREDICTION_NAMES):
-            return col
-    return None
-
-
-def infer_sensitive_columns(df: pd.DataFrame, domain: str) -> List[str]:
-    matches = []
-    for col in df.columns:
-        lowered = col.lower()
-        if any(name in lowered for name in COMMON_SENSITIVE_NAMES):
-            matches.append(col)
-    
-    if domain == "hiring":
-        matches += [col for col in df.columns if any(h in col.lower() for h in {"education", "marital"})]
-        
-    return list(dict.fromkeys(matches))[:3]
-
-
-def fallback_sensitive_columns(df: pd.DataFrame) -> List[str]:
-    candidates = []
-    for col in df.columns:
-        series = df[col].dropna()
-        unique = series.nunique()
-        # Relax constraint to include numeric binary/categorical columns (e.g. 0/1)
-        if 2 <= unique <= 10:
-            candidates.append(col)
-    return candidates[:2]
-
-
-def parse_positive_label(value: str) -> Any:
-    value = value.strip()
-    if value.isdigit():
-        return int(value)
-    try:
-        return float(value)
-    except ValueError:
-        return value
-
-
-def normalize_binary(series: pd.Series, positive_label: Any) -> pd.Series:
-    positive_set = {str(positive_label).strip().lower(), "1", "true", "yes", "approved", "selected", "hired", "positive"}
-    normalized = series.astype(str).str.strip().str.lower().isin(positive_set).astype(int)
-    if normalized.nunique() < 2 and pd.api.types.is_numeric_dtype(series):
-        numeric = pd.to_numeric(series, errors="coerce").fillna(0)
-        return (numeric > 0).astype(int)
-    return normalized
-
-
-def is_probability_like(series: pd.Series) -> bool:
-    if not pd.api.types.is_numeric_dtype(series):
-        return False
-    numeric = pd.to_numeric(series, errors="coerce").dropna()
-    if numeric.empty:
-        return False
-    return float(numeric.min()) >= 0.0 and float(numeric.max()) <= 1.0
-
-
-def generate_supervised_predictions(
-    df: pd.DataFrame,
-    target_column: str,
-    positive_label: Any,
-    sensitive_columns: List[str],
-) -> tuple[pd.Series, pd.Series, Dict[str, Any], Optional[Dict[str, Any]]]:
-    X = df.drop(columns=[target_column])
-    y = normalize_binary(df[target_column], positive_label)
-    _, probabilities, reweighing_summary, bundle = fit_binary_xgboost_bundle(
-        X,
-        y,
-        sensitive_columns=sensitive_columns,
-        sample_target_name=target_column,
-        model_source="xgboost_training_model",
-        explanation_basis=f"Trained on target column '{target_column}' to generate analysis predictions.",
-        apply_reweighing=True,
-    )
-    predictions = (probabilities >= 0.5).astype(int)
-    bundle["prediction_target_column"] = target_column
-    bundle["positive_label"] = str(positive_label)
-    return pd.Series(predictions, index=df.index), pd.Series(probabilities, index=df.index), reweighing_summary, bundle
-
-
-def fit_binary_xgboost_bundle(
-    X: pd.DataFrame,
-    y: pd.Series,
-    sensitive_columns: List[str],
-    sample_target_name: str,
-    model_source: str,
-    explanation_basis: str,
-    apply_reweighing: bool,
-) -> tuple[np.ndarray, np.ndarray, Dict[str, Any], Dict[str, Any]]:
-    sampled = sample_frame(pd.concat([X, y.rename(sample_target_name)], axis=1), MAX_TRAIN_ROWS, sample_target_name)
-    X_train = sampled.drop(columns=[sample_target_name])
-    y_train = sampled[sample_target_name]
-    compactors = fit_category_compactors(X_train)
-    X_train = apply_category_compactors(X_train, compactors)
-    X_full = apply_category_compactors(X, compactors)
-
-    if apply_reweighing:
-        sample_weights, reweighing_summary = compute_reweighing_weights(X_train, y_train, sensitive_columns)
-    else:
-        sample_weights = pd.Series(np.ones(len(y_train), dtype=float), index=y_train.index)
-        reweighing_summary = {
-            "applied": False,
-            "strategy": "none",
-            "group_columns": [],
-            "notes": ["Reweighing was intentionally disabled for the explainability surrogate."],
-        }
-
-    if y_train.nunique() < 2:
-        class_val = float(y_train.iloc[0]) if not y_train.empty else 0.0
-        probabilities = np.full(len(X), class_val)
-        reweighing_summary = {
-            "applied": False,
-            "strategy": "none",
-            "group_columns": [],
-            "notes": ["Target has only one class; skipped surrogate training."],
-        }
-        return np.where(probabilities >= 0.5, 1, 0), probabilities, reweighing_summary, {
-            "pipeline": None,
-            "compactors": compactors,
-            "feature_columns": X.columns.tolist(),
-            "numeric_columns": X_train.select_dtypes(include=[np.number]).columns.tolist(),
-            "categorical_columns": [col for col in X_train.columns if col not in X_train.select_dtypes(include=[np.number]).columns.tolist()],
-            "training_rows_used": int(len(sampled)),
-            "prediction_target_column": sample_target_name,
-            "model_source": model_source,
-            "explanation_basis": "Insufficient target variance for surrogate model training.",
-            "note": "Skipped model training because the target has only one unique value.",
-        }
-
-    model = build_model_pipeline(X_train, y_train)
-    model.fit(X_train, y_train, model__sample_weight=sample_weights.to_numpy())
-    probabilities = predict_in_batches(model, X_full)
-    predictions = (probabilities >= 0.5).astype(int)
-    numeric_columns = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_columns = [col for col in X_train.columns if col not in numeric_columns]
-    bundle = {
-        "pipeline": model,
-        "compactors": compactors,
-        "feature_columns": X.columns.tolist(),
-        "numeric_columns": numeric_columns,
-        "categorical_columns": categorical_columns,
-        "training_rows_used": int(len(sampled)),
-        "model_source": model_source,
-        "explanation_basis": explanation_basis,
-        "prediction_scores": probabilities,
-    }
-    return predictions, probabilities, reweighing_summary, bundle
-
-
-def build_prediction_explainability_bundle(
-    df: pd.DataFrame,
-    prediction_column: str,
-    target_column: Optional[str],
-    positive_label: Any,
-    sensitive_columns: List[str],
-) -> Optional[Dict[str, Any]]:
-    if prediction_column not in df.columns:
-        return None
-
-    feature_frame = df.drop(columns=[prediction_column], errors="ignore")
-    if target_column:
-        feature_frame = feature_frame.drop(columns=[target_column], errors="ignore")
-    if feature_frame.empty:
-        return None
-
-    prediction_series = df[prediction_column]
-    if is_probability_like(prediction_series):
-        prediction_binary = (pd.to_numeric(prediction_series, errors="coerce").fillna(0) >= 0.5).astype(int)
-    else:
-        prediction_binary = normalize_binary(prediction_series, positive_label)
-
-    _, _, _, bundle = fit_binary_xgboost_bundle(
-        feature_frame,
-        prediction_binary,
-        sensitive_columns=sensitive_columns,
-        sample_target_name=prediction_column,
-        model_source="prediction_surrogate_model",
-        explanation_basis=(
-            f"Trained a surrogate XGBoost model to approximate prediction column '{prediction_column}' for explainability."
-        ),
-        apply_reweighing=False,
-    )
-    return bundle
-
-
-def build_shap_explainability(model: Pipeline, X_train: pd.DataFrame) -> Optional[Dict[str, Any]]:
-    if not SHAP_AVAILABLE or shap is None:
-        return None
-
-    try:
-        sample_size = min(SHAP_SAMPLE_ROWS, len(X_train))
-        if sample_size == 0:
-            return None
-
-        sample_X = X_train.sample(sample_size, random_state=RANDOM_SEED) if len(X_train) > sample_size else X_train.copy()
-        preprocessor = model.named_steps["preprocessor"]
-        estimator = model.named_steps["model"]
-        transformed = preprocessor.transform(sample_X)
-        feature_names = list(preprocessor.get_feature_names_out())
-        explainer = shap.TreeExplainer(estimator)
-        shap_values = explainer.shap_values(transformed)
-
-        if isinstance(shap_values, list):
-            shap_matrix = np.asarray(shap_values[0])
-        else:
-            shap_matrix = np.asarray(shap_values)
-
-        if shap_matrix.ndim == 3:
-            shap_matrix = shap_matrix[:, :, 0]
-        if shap_matrix.ndim != 2 or shap_matrix.shape[1] != len(feature_names):
-            return None
-
-        mean_abs = np.abs(shap_matrix).mean(axis=0)
-        mean_signed = shap_matrix.mean(axis=0)
-        feature_rollup: Dict[str, Dict[str, float]] = {}
-
-        for index, transformed_name in enumerate(feature_names):
-            source_feature = resolve_source_feature_name(transformed_name, sample_X.columns.tolist())
-            bucket = feature_rollup.setdefault(source_feature, {"importance": 0.0, "signed": 0.0})
-            bucket["importance"] += float(mean_abs[index])
-            bucket["signed"] += float(mean_signed[index])
-
-        ranked = sorted(feature_rollup.items(), key=lambda item: item[1]["importance"], reverse=True)
-        top_features = []
-        for feature, values in ranked[:10]:
-            direction = "positive" if values["signed"] >= 0 else "negative"
-            top_features.append(
-                {
-                    "feature": feature,
-                    "score": round(values["importance"], 4),
-                    "weight": round(values["signed"], 4),
-                    "direction": direction,
-                    "reason": f"Mean |SHAP| aggregated from the XGBoost surrogate model ({sample_size} sampled rows).",
-                }
-            )
-
-        shap_style_summary = [
-            {
-                "feature": item["feature"],
-                "impact": item["score"],
-                "direction": item["direction"],
-                "summary": (
-                    f"{item['feature']} has a {item['direction']} contribution trend in the surrogate model "
-                    f"and ranks among the strongest SHAP drivers."
-                ),
-            }
-            for item in top_features[:6]
-        ]
-
-        lime_style_example = [
-            {
-                "feature": item["feature"],
-                "impact": item["score"],
-                "direction": item["direction"],
-                "summary": (
-                    f"For sampled local predictions, {item['feature']} repeatedly moved the score in a "
-                    f"{item['direction']} direction."
-                ),
-            }
-            for item in top_features[:3]
-        ]
-
-        return {
-            "status": "model_based",
-            "method": "shap_tree_explainer",
-            "methods_available": ["SHAP", "surrogate_feature_ranking", "group_threshold_optimization", "massaging_correction"],
-            "methods_unavailable": ["LIME"],
-            "top_features": top_features,
-            "shap_style_summary": shap_style_summary,
-            "lime_style_example": lime_style_example,
-            "note": (
-                "SHAP is now computed directly on the trained XGBoost surrogate model. "
-                "If you want LLM narration later, add Gemini as a language layer on top of these SHAP values, not as a replacement."
-            ),
-        }
-    except Exception:
-        return None
-
-
-def resolve_source_feature_name(transformed_name: str, source_columns: List[str]) -> str:
-    normalized = transformed_name
-    for prefix in ("num__", "cat__"):
-        if normalized.startswith(prefix):
-            normalized = normalized[len(prefix) :]
-            break
-
-    for column in sorted(source_columns, key=len, reverse=True):
-        if normalized == column or normalized.startswith(f"{column}_"):
-            return column
-    return normalized
-
-
-def generate_unsupervised_predictions(df: pd.DataFrame, sensitive_columns: List[str]) -> tuple[pd.Series, pd.Series]:
+# ---------------------------------------------------------------------------
+# Internal helpers — kept mostly from original for backward compat
+# ---------------------------------------------------------------------------
+def _generate_unsupervised_predictions(
+    df: pd.DataFrame, sensitive_columns: List[str],
+) -> tuple:
     feature_frame = df.drop(columns=sensitive_columns, errors="ignore")
     numeric = feature_frame.select_dtypes(include=[np.number]).copy()
     if numeric.empty:
@@ -1179,1381 +491,266 @@ def generate_unsupervised_predictions(df: pd.DataFrame, sensitive_columns: List[
         numeric = numeric.fillna(numeric.median(numeric_only=True))
         centered = (numeric - numeric.mean()) / numeric.std(ddof=0).replace(0, 1)
         numeric_score = centered.sum(axis=1)
-
-    categorical = [col for col in feature_frame.columns if col not in numeric.columns]
-    categorical_score = pd.Series(np.zeros(len(df)), index=df.index, dtype=float)
+    categorical = [c for c in feature_frame.columns if c not in numeric.columns]
+    cat_score = pd.Series(np.zeros(len(df)), index=df.index, dtype=float)
     for col in categorical[:5]:
         freq = feature_frame[col].astype(str).value_counts(normalize=True)
-        categorical_score += 1 - feature_frame[col].astype(str).map(freq).fillna(0)
-
-    combined = numeric_score.add(categorical_score, fill_value=0)
+        cat_score += 1 - feature_frame[col].astype(str).map(freq).fillna(0)
+    combined = numeric_score.add(cat_score, fill_value=0)
     normalized = (combined - combined.min()) / max(1e-9, float(combined.max() - combined.min()))
     predictions = (normalized >= normalized.median()).astype(int)
     return predictions, normalized
 
 
-def compute_scale_pos_weight(y: pd.Series) -> float:
-    positives = int((y == 1).sum())
-    negatives = int((y == 0).sum())
-    if positives <= 0 or negatives <= 0:
-        return 1.0
-    return max(1.0, negatives / positives)
-
-
-def build_model_pipeline(X: pd.DataFrame, y: pd.Series) -> Pipeline:
-    if not XGBOOST_AVAILABLE or XGBClassifier is None:
-        raise HTTPException(status_code=500, detail=f"XGBoost runtime is unavailable: {XGBOOST_IMPORT_ERROR}")
-
-    numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = [col for col in X.columns if col not in numeric_cols]
-    scale_pos_weight = compute_scale_pos_weight(y)
-    preprocessor = ColumnTransformer(
-        transformers=[
-            (
-                "num",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="median")),
-                ]),
-                numeric_cols,
-            ),
-            (
-                "cat",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="most_frequent")),
-                    (
-                        "onehot",
-                        OneHotEncoder(
-                            handle_unknown="ignore",
-                            max_categories=MAX_CATEGORY_LEVELS + 1,
-                        ),
-                    ),
-                ]),
-                categorical_cols,
-            ),
-        ],
-        remainder="drop",
-    )
-    return Pipeline([
-        ("preprocessor", preprocessor),
-        (
-            "model",
-            XGBClassifier(
-                objective="binary:logistic",
-                eval_metric="logloss",
-                n_estimators=240,
-                max_depth=6,
-                learning_rate=0.05,
-                subsample=0.9,
-                colsample_bytree=0.8,
-                reg_lambda=1.0,
-                min_child_weight=1,
-                tree_method="hist",
-                n_jobs=max(1, (os.cpu_count() or 2) - 1),
-                random_state=RANDOM_SEED,
-                scale_pos_weight=scale_pos_weight,
-            ),
-        ),
-    ])
-
-
-def predict_in_batches(model: Pipeline, X: pd.DataFrame) -> np.ndarray:
-    batches: List[np.ndarray] = []
-    for start in range(0, len(X), PREDICTION_BATCH_ROWS):
-        chunk = X.iloc[start : start + PREDICTION_BATCH_ROWS]
-        batches.append(model.predict_proba(chunk)[:, 1])
-    return np.concatenate(batches) if batches else np.array([])
-
-
-def analyze_sensitive_column(df: pd.DataFrame, sensitive: str, prediction_column: str, target_column: Optional[str], positive_label: Any) -> Dict[str, Any]:
-    frame = df[[sensitive, prediction_column] + ([target_column] if target_column else [])].copy()
-    frame = frame.dropna(subset=[sensitive, prediction_column])
-    if is_probability_like(frame[prediction_column]):
-        frame[prediction_column] = (pd.to_numeric(frame[prediction_column], errors="coerce").fillna(0) >= 0.5).astype(int)
-    else:
-        frame[prediction_column] = normalize_binary(frame[prediction_column], positive_label)
+def _build_prediction_explainability_bundle(
+    df: pd.DataFrame, prediction_column: str,
+    target_column: Optional[str], positive_label: Any,
+    sensitive_columns: List[str],
+) -> Optional[Dict[str, Any]]:
+    if prediction_column not in df.columns:
+        return None
+    feature_frame = df.drop(columns=[prediction_column], errors="ignore")
     if target_column:
-        frame[target_column] = normalize_binary(frame[target_column], positive_label)
-
-    groups = frame[sensitive].astype(str).value_counts().head(5).index.tolist()
-    if len(groups) < 2:
-        return {
-            "sensitive_column": sensitive,
-            "fairness_score": 100.0,
-            "risk_level": "low",
-            "group_metrics": [],
-            "demographic_parity_difference": 0.0,
-            "disparate_impact": 1.0,
-            "notes": ["Not enough distinct groups for comparison."],
-        }
-
-    baseline = groups[0]
-    baseline_rate = frame.loc[frame[sensitive].astype(str) == baseline, prediction_column].mean()
-    group_metrics = []
-    disparities = []
-    impacts = []
-    accuracy_gap = []
-
-    for group in groups:
-        subset = frame.loc[frame[sensitive].astype(str) == group]
-        selection_rate = float(subset[prediction_column].mean()) if len(subset) else 0.0
-        metrics = {
-            "group": group,
-            "count": int(len(subset)),
-            "selection_rate": round(selection_rate, 4),
-        }
-        disparities.append(abs(selection_rate - baseline_rate))
-        impacts.append(selection_rate / baseline_rate if baseline_rate > 0 else 1.0)
-
-        if target_column:
-            tp = int(((subset[prediction_column] == 1) & (subset[target_column] == 1)).sum())
-            tn = int(((subset[prediction_column] == 0) & (subset[target_column] == 0)).sum())
-            fp = int(((subset[prediction_column] == 1) & (subset[target_column] == 0)).sum())
-            fn = int(((subset[prediction_column] == 0) & (subset[target_column] == 1)).sum())
-            tpr = safe_divide(tp, tp + fn)
-            fpr = safe_divide(fp, fp + tn)
-            fnr = safe_divide(fn, fn + tp)
-            accuracy = safe_divide(tp + tn, len(subset))
-            metrics.update({
-                "true_positive_rate": round(tpr, 4),
-                "false_positive_rate": round(fpr, 4),
-                "false_negative_rate": round(fnr, 4),
-                "accuracy": round(accuracy, 4),
-            })
-            accuracy_gap.append(accuracy)
-        group_metrics.append(metrics)
-
-    dp_diff = float(max(disparities)) if disparities else 0.0
-    disparate_impact = float(min(impacts)) if impacts else 1.0
-    accuracy_spread = float(max(accuracy_gap) - min(accuracy_gap)) if accuracy_gap else 0.0
-    fairness_score = 100 - (dp_diff * 55) - (max(0.0, 0.8 - disparate_impact) * 100) - (accuracy_spread * 20)
-    fairness_score = round(max(0.0, min(100.0, fairness_score)), 2)
-
-    notes = []
-    if disparate_impact < 0.8:
-        notes.append("Disparate impact below the common 0.80 threshold.")
-    if dp_diff > 0.15:
-        notes.append("Large demographic parity gap detected.")
-    if accuracy_spread > 0.1:
-        notes.append("Model performance differs noticeably across groups.")
-
-    return {
-        "sensitive_column": sensitive,
-        "baseline_group": baseline,
-        "fairness_score": fairness_score,
-        "risk_level": score_to_risk(fairness_score),
-        "demographic_parity_difference": round(dp_diff, 4),
-        "disparate_impact": round(disparate_impact, 4),
-        "accuracy_spread": round(accuracy_spread, 4),
-        "group_metrics": group_metrics,
-        "notes": notes,
-    }
-
-
-def build_root_causes(df: pd.DataFrame, sensitive_columns: List[str], target_column: Optional[str], prediction_column: str) -> List[Dict[str, Any]]:
-    causes: List[Dict[str, Any]] = []
-    sampled = sample_frame(df, MAX_PROXY_SCAN_ROWS, target_column)
-    for sensitive in sensitive_columns:
-        value_counts = sampled[sensitive].astype(str).value_counts(normalize=True)
-        minority_share = float(value_counts.min()) if len(value_counts) > 1 else 0.0
-        if minority_share < 0.2:
-            causes.append({
-                "type": "representation_imbalance",
-                "sensitive_column": sensitive,
-                "severity": "high" if minority_share < 0.1 else "medium",
-                "details": f"Smallest group share is {minority_share:.1%}, suggesting underrepresentation.",
-            })
-
-        proxy_scores = []
-        for column in sampled.columns:
-            if column in {sensitive, target_column, prediction_column}:
-                continue
-            if sampled[column].nunique(dropna=True) < 2:
-                continue
-            proxy = estimate_proxy_signal(sampled[column], sampled[sensitive])
-            if proxy >= 0.35:
-                proxy_scores.append((column, proxy))
-        for column, proxy in sorted(proxy_scores, key=lambda item: item[1], reverse=True)[:3]:
-            causes.append({
-                "type": "proxy_feature_risk",
-                "sensitive_column": sensitive,
-                "feature": column,
-                "severity": "medium" if proxy < 0.55 else "high",
-                "details": f"Feature '{column}' shows strong association with '{sensitive}' ({proxy:.2f}).",
-            })
-    return causes
-
-
-def build_intersectional_root_causes(intersectional_findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    causes: List[Dict[str, Any]] = []
-    for finding in intersectional_findings:
-        if finding["fairness_score"] >= 85 and finding["disparate_impact"] >= 0.8:
-            continue
-
-        causes.append({
-            "type": "intersectional_disparity",
-            "sensitive_column": finding["sensitive_column"],
-            "severity": "high" if finding["fairness_score"] < 65 or finding["disparate_impact"] < 0.8 else "medium",
-            "details": (
-                f"Intersectional slice '{finding['sensitive_column']}' shows fairness {finding['fairness_score']} "
-                f"and disparate impact {finding['disparate_impact']}."
-            ),
-        })
-
-    return causes[:MAX_INTERSECTIONAL_FINDINGS]
-
-
-def estimate_proxy_signal(feature: pd.Series, sensitive: pd.Series) -> float:
-    data = pd.DataFrame({"feature": feature.astype(str), "sensitive": sensitive.astype(str)}).dropna()
-    if len(data) > MAX_PROXY_SCAN_ROWS:
-        data = data.sample(MAX_PROXY_SCAN_ROWS, random_state=RANDOM_SEED)
-    if data.empty:
-        return 0.0
-    contingency = pd.crosstab(data["feature"], data["sensitive"])
-    total = contingency.to_numpy().sum()
-    if total == 0:
-        return 0.0
-    expected = np.outer(contingency.sum(axis=1), contingency.sum(axis=0)) / total
-    observed = contingency.to_numpy()
-    with np.errstate(divide="ignore", invalid="ignore"):
-        chi_square = np.nansum((observed - expected) ** 2 / np.where(expected == 0, 1, expected))
-    min_dim = min(contingency.shape) - 1
-    if min_dim <= 0:
-        return 0.0
-    cramers_v = np.sqrt((chi_square / total) / min_dim)
-    return float(min(cramers_v, 1.0))
-
-
-def build_recommendations(
-    findings: List[Dict[str, Any]],
-    root_causes: List[Dict[str, Any]],
-    reweighing_summary: Optional[Dict[str, Any]] = None,
-) -> List[Dict[str, Any]]:
-    recommendations: List[Dict[str, Any]] = []
-    for finding in findings:
-        if finding["disparate_impact"] < 0.8:
-            recommendations.append({
-                "category": "data",
-                "priority": "high",
-                "title": f"Rebalance data for {finding['sensitive_column']}",
-                "description": "Increase representation or apply reweighting for groups with lower positive outcomes.",
-            })
-        if finding["accuracy_spread"] > 0.1:
-            recommendations.append({
-                "category": "model",
-                "priority": "medium",
-                "title": f"Retrain model with fairness constraints on {finding['sensitive_column']}",
-                "description": "Validate equal opportunity and reduce per-group error gaps before deployment.",
-            })
-        if finding.get("is_intersectional") and (finding["fairness_score"] < 85 or finding["disparate_impact"] < 0.8):
-            recommendations.append({
-                "category": "intersectional",
-                "priority": "high" if finding["fairness_score"] < 65 else "medium",
-                "title": f"Audit intersectional disparity: {finding['sensitive_column']}",
-                "description": "Review combined demographic slices and validate mitigation on the worst-case intersectional groups.",
-            })
-    for cause in root_causes:
-        if cause["type"] == "proxy_feature_risk":
-            recommendations.append({
-                "category": "feature",
-                "priority": cause["severity"],
-                "title": f"Audit proxy feature: {cause['feature']}",
-                "description": cause["details"],
-            })
-        if cause["type"] == "representation_imbalance":
-            recommendations.append({
-                "category": "governance",
-                "priority": cause["severity"],
-                "title": f"Review sample coverage for {cause['sensitive_column']}",
-                "description": cause["details"],
-            })
-        if cause["type"] == "intersectional_disparity":
-            recommendations.append({
-                "category": "intersectional",
-                "priority": cause["severity"],
-                "title": f"Strengthen intersectional mitigation for {cause['sensitive_column']}",
-                "description": cause["details"],
-            })
-    if reweighing_summary and reweighing_summary.get("applied"):
-        recommendations.append({
-            "category": "training",
-            "priority": "medium",
-            "title": "Validate reweighing on a holdout set",
-            "description": "Training-time intersectional reweighing is active; confirm calibration, fairness lift, and accuracy on unseen data.",
-        })
-    else:
-        recommendations.append({
-            "category": "training",
-            "priority": "medium",
-            "title": "Enable training-time reweighing when labels are available",
-            "description": "Use label-aware reweighing to reduce imbalance across intersectional sensitive groups during supervised retraining.",
-        })
-    recommendations.append({
-        "category": "ci_cd",
-        "priority": "high",
-        "title": "Add a fairness gate to CI/CD",
-        "description": "Block deployment when fairness score drops below the release threshold.",
-    })
-    return unique_recommendations(recommendations)
-
-
-def unique_recommendations(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    seen = set()
-    unique = []
-    for item in items:
-        key = (item["category"], item["title"])
-        if key not in seen:
-            unique.append(item)
-            seen.add(key)
-    return unique
-
-
-def build_explanation(
-    domain: str,
-    source_name: str,
-    fairness_summary: Dict[str, Any],
-    findings: List[Dict[str, Any]],
-    intersectional_findings: List[Dict[str, Any]],
-    root_causes: List[Dict[str, Any]],
-    reweighing_summary: Dict[str, Any],
-    explainability: Dict[str, Any],
-) -> Dict[str, Any]:
-    worst = sorted(findings, key=lambda item: item["fairness_score"])[0] if findings else None
-    worst_intersectional = sorted(intersectional_findings, key=lambda item: item["fairness_score"])[0] if intersectional_findings else None
-    fallback_summary = (
-        f"Analysis for {source_name} in the {domain} domain shows an overall fairness score of "
-        f"{fairness_summary['overall_fairness_score']} and a corrected score of "
-        f"{fairness_summary.get('corrected_fairness_score', fairness_summary['overall_fairness_score'])}."
-    )
-    if worst:
-        fallback_summary += (
-            f" The most affected attribute is '{worst['sensitive_column']}', with disparate impact "
-            f"{worst['disparate_impact']} and demographic parity difference {worst['demographic_parity_difference']}."
-        )
-    if worst_intersectional:
-        fallback_summary += (
-            f" The weakest intersectional slice is '{worst_intersectional['sensitive_column']}', scoring "
-            f"{worst_intersectional['fairness_score']}."
-        )
-    if root_causes:
-        fallback_summary += " Likely drivers include representation imbalance and proxy-feature effects."
-    if reweighing_summary.get("applied"):
-        fallback_summary += " Training-time intersectional reweighing was applied to the surrogate model."
-    if fairness_summary.get("overall_fairness_score") == fairness_summary.get("corrected_fairness_score"):
-        fallback_summary += " The uploaded file appears to already contain the corrected decisions used for audit."
-    if fairness_summary.get("fairness_target_met"):
-        fallback_summary += " The corrected run meets the 95 fairness target."
-    else:
-        fallback_summary += f" The corrected run remains {fairness_summary.get('fairness_target_gap', 0)} points short of the 95 target."
-
-    gemini_summary = explainability.get("gemini_narrative", {}).get("summary")
-    gemini_key_points = explainability.get("gemini_narrative", {}).get("key_points", [])
-    summary = gemini_summary or fallback_summary
-    plain_language = [
-        *[str(item) for item in gemini_key_points if str(item).strip()],
-        "The system compares outcomes across sensitive groups instead of checking only overall accuracy.",
-        "Intersectional fairness checks whether combined identities such as gender plus age group suffer larger disparities than each attribute alone.",
-        "A low disparate impact means one group receives favorable outcomes much less often than the baseline group.",
-        "SHAP values show which model inputs pushed a prediction toward or away from the positive outcome.",
-        "Corrected fairness is the post-mitigation score shown on the dashboard and report.",
-        "The correction engine now applies iterative parity repair after threshold tuning to stabilize re-audits.",
-        "Supervised surrogate predictions now use XGBoost, Spark accelerates sampled large-dataset workloads when its runtime is available, and reweighing balances the training signal across intersectional groups.",
-    ]
-    plain_language = list(dict.fromkeys(plain_language))
-    return {
-        "executive_summary": summary,
-        "plain_language": plain_language,
-    }
-
-
-def build_corrected_dataset(
-    df: pd.DataFrame,
-    sensitive_columns: List[str],
-    prediction_column: str,
-    target_column: Optional[str],
-    positive_label: Any,
-    score_column: Optional[str],
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    corrected = df.copy()
-
-    if prediction_column == "corrected_prediction" and "corrected_prediction" in corrected.columns:
-        if "corrected_probability" not in corrected.columns:
-            corrected["corrected_probability"] = get_probability_series(
-                corrected,
-                "corrected_prediction",
-                score_column,
-                positive_label,
-            )
-        if "correction_note" not in corrected.columns:
-            corrected["correction_note"] = "Re-audited existing corrected artifact"
-        if "correction_method" not in corrected.columns:
-            corrected["correction_method"] = "re_audit_existing_correction"
-        return corrected, {
-            "method": "re_audit_existing_correction",
-            "notes": [
-                "Uploaded file already contained corrected predictions, so the audit reused them directly.",
-            ],
-            "massaging": [],
-            "thresholds": [],
-            "fairness_target": 95.0,
-        }
-
-    base_probabilities = get_probability_series(corrected, prediction_column, score_column, positive_label)
-    correction_summary: Dict[str, Any] = {
-        "method": "advanced_iterative_hybrid",
-        "notes": [
-            "Correction uses threshold optimization, near-boundary relabeling, and iterative group parity repair.",
-        ],
-    }
-
-    corrected["corrected_probability"] = base_probabilities
-    corrected["corrected_prediction"] = (base_probabilities >= 0.5).astype(int)
-    corrected["correction_note"] = "Baseline corrected prediction"
-
-    massaging_actions = []
-    for sensitive in sensitive_columns:
-        corrected, massaging_meta = apply_massaging_correction(
-            corrected,
-            sensitive,
-            "corrected_probability",
-            target_column,
-            positive_label,
-        )
-        massaging_actions.append(massaging_meta)
-
-    thresholds_used = []
-    for sensitive in sensitive_columns:
-        corrected, threshold_meta = optimize_group_thresholds(
-            corrected,
-            sensitive,
-            "corrected_probability",
-            target_column,
-            positive_label,
-        )
-        thresholds_used.append(threshold_meta)
-
-    repair_rounds = []
-    corrected = corrected.copy()
-    for sensitive in sensitive_columns:
-        corrected, repair_meta = iterative_fairness_repair(
-            corrected,
-            sensitive,
-            "corrected_probability",
-            target_column,
-            positive_label,
-        )
-        repair_rounds.append(repair_meta)
-
-    corrected["correction_method"] = correction_summary["method"]
-    correction_summary["massaging"] = massaging_actions
-    correction_summary["thresholds"] = thresholds_used
-    correction_summary["repair_rounds"] = repair_rounds
-    correction_summary["fairness_target"] = 95.0
-    return corrected, correction_summary
-
-
-def get_probability_series(
-    df: pd.DataFrame,
-    prediction_column: str,
-    score_column: Optional[str],
-    positive_label: Any,
-) -> pd.Series:
-    if score_column and score_column in df.columns and is_probability_like(df[score_column]):
-        return pd.to_numeric(df[score_column], errors="coerce").fillna(0.0).clip(0.0, 1.0)
-    if is_probability_like(df[prediction_column]):
-        return pd.to_numeric(df[prediction_column], errors="coerce").fillna(0.0).clip(0.0, 1.0)
-    return normalize_binary(df[prediction_column], positive_label).astype(float)
-
-
-def apply_massaging_correction(
-    df: pd.DataFrame,
-    sensitive: str,
-    probability_column: str,
-    target_column: Optional[str],
-    positive_label: Any,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    working = df.copy()
-    groups = working[sensitive].astype(str).value_counts().head(5).index.tolist()
-    if len(groups) < 2:
-        return working, {"sensitive_column": sensitive, "applied": False, "promoted": 0, "demoted": 0}
-
-    baseline_group = groups[0]
-    baseline_mask = working[sensitive].astype(str) == baseline_group
-    baseline_rate = float(working.loc[baseline_mask, "corrected_prediction"].mean())
-    promoted_total = 0
-    demoted_total = 0
-
-    for group in groups[1:]:
-        group_mask = working[sensitive].astype(str) == group
-        group_size = int(group_mask.sum())
-        if group_size == 0:
-            continue
-
-        current_rate = float(working.loc[group_mask, "corrected_prediction"].mean())
-        target_rate = min(0.995, baseline_rate)
-        gap = max(0.0, target_rate - current_rate)
-        flips_needed = int(round(gap * group_size))
-        if flips_needed <= 0:
-            continue
-
-        promote_candidates = working.loc[
-            group_mask & (working["corrected_prediction"] == 0),
-            probability_column,
-        ].sort_values(ascending=False)
-        baseline_positive_rate = target_rate
-        demote_candidates = working.loc[
-            baseline_mask & (working["corrected_prediction"] == 1),
-            probability_column,
-        ].sort_values(ascending=True)
-
-        promoted_idx = promote_candidates.head(flips_needed).index.tolist()
-        demoted_idx = demote_candidates.head(min(len(promoted_idx), max(0, int(round((baseline_positive_rate - current_rate) * 0.35 * group_size))))).index.tolist()
-
-        if promoted_idx:
-            working.loc[promoted_idx, "corrected_prediction"] = 1
-            working.loc[promoted_idx, "correction_note"] = f"Massaged toward parity for {sensitive}={group}"
-            promoted_total += len(promoted_idx)
-        if demoted_idx:
-            working.loc[demoted_idx, "corrected_prediction"] = 0
-            working.loc[demoted_idx, "correction_note"] = f"Massaged toward parity for {sensitive}={baseline_group}"
-            demoted_total += len(demoted_idx)
-
-    if target_column and target_column in working.columns:
-        target_binary = normalize_binary(working[target_column], positive_label)
-        low_confidence_mask = (working[probability_column].between(0.4, 0.6))
-        correct_positive = low_confidence_mask & (target_binary == 1)
-        working.loc[correct_positive, "corrected_prediction"] = 1
-
-    return working, {
-        "sensitive_column": sensitive,
-        "applied": promoted_total > 0 or demoted_total > 0,
-        "baseline_group": baseline_group,
-        "promoted": promoted_total,
-        "demoted": demoted_total,
-    }
-
-
-def optimize_group_thresholds(
-    df: pd.DataFrame,
-    sensitive: str,
-    probability_column: str,
-    target_column: Optional[str],
-    positive_label: Any,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    working = df.copy()
-    groups = working[sensitive].astype(str).value_counts().head(5).index.tolist()
-    if len(groups) < 2:
-        return working, {"sensitive_column": sensitive, "applied": False}
-
-    baseline_group = groups[0]
-    baseline_mask = working[sensitive].astype(str) == baseline_group
-    baseline_rate = float((working.loc[baseline_mask, probability_column] >= 0.5).mean())
-    thresholds = [{"group": baseline_group, "threshold": 0.5}]
-    target_rate = min(0.995, max(baseline_rate, 0.5))
-
-    for group in groups[1:]:
-        group_mask = working[sensitive].astype(str) == group
-        if int(group_mask.sum()) == 0:
-            continue
-        best_threshold = 0.5
-        best_loss = float("inf")
-        group_probs = pd.to_numeric(working.loc[group_mask, probability_column], errors="coerce").fillna(0.0)
-        group_target = normalize_binary(working.loc[group_mask, target_column], positive_label) if target_column else None
-
-        for threshold in [0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2]:
-            prediction = (group_probs >= threshold).astype(int)
-            selection_rate = float(prediction.mean())
-            fairness_gap = abs(selection_rate - target_rate)
-            di_gap = abs(1.0 - safe_divide(selection_rate, baseline_rate if baseline_rate > 0 else 1.0))
-            accuracy_penalty = 1 - float((prediction == group_target).mean()) if group_target is not None and len(group_target) > 0 else 0.0
-            loss = fairness_gap + (di_gap * 0.25) + (accuracy_penalty * 0.3)
-            if loss < best_loss:
-                best_loss = loss
-                best_threshold = threshold
-
-        working.loc[group_mask, "corrected_prediction"] = (group_probs >= best_threshold).astype(int)
-        working.loc[group_mask, "correction_note"] = f"Threshold tuned for {sensitive}={group}"
-        thresholds.append({"group": group, "threshold": best_threshold})
-
-    return working, {
-        "sensitive_column": sensitive,
-        "applied": True,
-        "baseline_group": baseline_group,
-        "thresholds": thresholds,
-    }
-
-
-def iterative_fairness_repair(
-    df: pd.DataFrame,
-    sensitive: str,
-    probability_column: str,
-    target_column: Optional[str],
-    positive_label: Any,
-    max_rounds: int = 3,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    working = df.copy()
-    groups = working[sensitive].astype(str).value_counts().head(5).index.tolist()
-    if len(groups) < 2:
-        return working, {"sensitive_column": sensitive, "applied": False, "rounds": 0, "flips": 0}
-
-    target_binary = (
-        normalize_binary(working[target_column], positive_label)
-        if target_column and target_column in working.columns
-        else None
-    )
-    total_flips = 0
-    completed_rounds = 0
-
-    for _ in range(max_rounds):
-        rates = {
-            group: float(working.loc[working[sensitive].astype(str) == group, "corrected_prediction"].mean())
-            for group in groups
-        }
-        rate_values = list(rates.values())
-        if not rate_values:
-            break
-
-        target_rate = float(np.clip(np.mean(rate_values), 0.35, 0.995))
-        changed = False
-
-        for group in groups:
-            group_mask = working[sensitive].astype(str) == group
-            group_size = int(group_mask.sum())
-            if group_size == 0:
-                continue
-
-            current_rate = rates[group]
-            rate_gap = target_rate - current_rate
-            flips_needed = int(round(abs(rate_gap) * group_size))
-            if flips_needed <= 0:
-                continue
-
-            if rate_gap > 0:
-                candidates = working.loc[group_mask & (working["corrected_prediction"] == 0)].copy()
-                if target_binary is not None:
-                    candidates["_priority"] = (target_binary.loc[candidates.index] == 1).astype(int)
-                    candidates = candidates.sort_values(["_priority", probability_column], ascending=[False, False])
-                else:
-                    candidates = candidates.sort_values(probability_column, ascending=False)
-                chosen = candidates.head(flips_needed).index.tolist()
-                if chosen:
-                    working.loc[chosen, "corrected_prediction"] = 1
-                    working.loc[chosen, "correction_note"] = f"Iterative fairness repair for {sensitive}={group}"
-                    total_flips += len(chosen)
-                    changed = True
-            else:
-                candidates = working.loc[group_mask & (working["corrected_prediction"] == 1)].copy()
-                if target_binary is not None:
-                    candidates["_priority"] = (target_binary.loc[candidates.index] == 0).astype(int)
-                    candidates = candidates.sort_values(["_priority", probability_column], ascending=[False, True])
-                else:
-                    candidates = candidates.sort_values(probability_column, ascending=True)
-                chosen = candidates.head(flips_needed).index.tolist()
-                if chosen:
-                    working.loc[chosen, "corrected_prediction"] = 0
-                    working.loc[chosen, "correction_note"] = f"Iterative fairness repair for {sensitive}={group}"
-                    total_flips += len(chosen)
-                    changed = True
-
-        completed_rounds += 1
-        if not changed:
-            break
-
-    return working, {
-        "sensitive_column": sensitive,
-        "applied": total_flips > 0,
-        "rounds": completed_rounds,
-        "flips": total_flips,
-    }
-
-
-def build_proxy_explainability(
-    df: pd.DataFrame,
-    prediction_column: str,
-    target_column: Optional[str],
-    sensitive_columns: List[str],
-    note: Optional[str] = None,
-) -> Dict[str, Any]:
-    top_features = []
-    sampled = sample_frame(df, MAX_PROXY_SCAN_ROWS, target_column)
-    for column in sampled.columns:
-        if column in set(sensitive_columns + [prediction_column] + ([target_column] if target_column else [])):
-            continue
-        if sampled[column].nunique(dropna=True) < 2:
-            continue
-        score = 0.0
-        reason = "proxy association"
-        for sensitive in sensitive_columns:
-            score = max(score, estimate_proxy_signal(sampled[column], sampled[sensitive]))
-        top_features.append({"feature": column, "score": round(float(score), 3), "reason": reason})
-    top_features = sorted(top_features, key=lambda item: item["score"], reverse=True)[:5]
-    shap_style_summary = [
-        {
-            "feature": item["feature"],
-            "impact": item["score"],
-            "direction": "proxy influence",
-            "summary": f"Feature '{item['feature']}' shows strong proxy-style influence in the fallback scan.",
-        }
-        for item in top_features
-    ]
-    return {
-        "status": "proxy_fallback",
-        "method": "proxy_scan",
-        "model_source": "proxy_scan",
-        "methods_available": ["rule_based_proxy_scan", "surrogate_feature_ranking", "group_threshold_optimization", "massaging_correction"],
-        "methods_unavailable": ["TreeSHAP"],
-        "top_features": top_features,
-        "shap_style_summary": shap_style_summary,
-        "lime_style_example": shap_style_summary[:3],
-        "global_feature_importance": [],
-        "local_explanations": [],
-        "gemini_narrative": {
-            "status": "skipped",
-            "model": GEMINI_MODEL,
-            "summary": None,
-            "key_points": [],
-            "risk_statement": "Gemini narration was skipped because TreeSHAP output was not available for this run.",
-            "recommended_focus": "Run the analysis with a trainable XGBoost path or a prediction column that can be modeled.",
-        },
-        "note": note
-        or "TreeSHAP was not available for this run, so the service fell back to a correlation-style proxy scan.",
-    }
-
-
-def match_encoded_feature_to_source(encoded_name: str, candidates: List[str]) -> str:
-    for column in sorted(candidates, key=len, reverse=True):
-        if encoded_name == column or encoded_name.startswith(f"{column}_"):
-            return column
-    return encoded_name
-
-
-def build_transformed_feature_source_map(
-    feature_names: List[str],
-    model_bundle: Dict[str, Any],
-    preprocessor: ColumnTransformer,
-) -> Dict[str, str]:
-    source_map: Dict[str, str] = {}
-    numeric_columns = [str(column) for column in model_bundle.get("numeric_columns", [])]
-    categorical_columns = [str(column) for column in model_bundle.get("categorical_columns", [])]
-
-    for column in numeric_columns:
-        source_map[f"num__{column}"] = column
-
-    cat_transformer = getattr(preprocessor, "named_transformers_", {}).get("cat")
-    encoder = cat_transformer.named_steps.get("onehot") if hasattr(cat_transformer, "named_steps") else None
-    if encoder is not None and categorical_columns:
-        encoded_names = encoder.get_feature_names_out(categorical_columns).tolist()
-        for encoded_name in encoded_names:
-            source_map[f"cat__{encoded_name}"] = match_encoded_feature_to_source(encoded_name, categorical_columns)
-
-    for feature_name in feature_names:
-        if feature_name not in source_map:
-            source_map[feature_name] = feature_name.split("__", 1)[-1] if "__" in feature_name else feature_name
-
-    return source_map
-
-
-def aggregate_contributions_by_feature(
-    feature_contributions: np.ndarray,
-    feature_names: List[str],
-    feature_columns: List[str],
-    source_map: Dict[str, str],
-) -> Tuple[List[str], np.ndarray]:
-    ordered_features = list(feature_columns)
-    feature_index = {feature: idx for idx, feature in enumerate(ordered_features)}
-    aggregated = np.zeros((feature_contributions.shape[0], len(ordered_features)), dtype=float)
-
-    for column_idx, transformed_name in enumerate(feature_names):
-        source_feature = source_map.get(transformed_name, transformed_name)
-        if source_feature not in feature_index:
-            feature_index[source_feature] = len(ordered_features)
-            ordered_features.append(source_feature)
-            aggregated = np.pad(aggregated, ((0, 0), (0, 1)))
-        aggregated[:, feature_index[source_feature]] += feature_contributions[:, column_idx]
-
-    return ordered_features, aggregated
-
-
-def sigmoid(value: float) -> float:
-    bounded = float(np.clip(value, -30.0, 30.0))
-    return 1.0 / (1.0 + float(np.exp(-bounded)))
-
-
-def format_feature_value(value: Any) -> str:
-    if pd.isna(value):
-        return "missing"
-    if isinstance(value, (float, np.floating)):
-        return f"{float(value):.4f}"
-    return str(value)
-
-
-def select_local_sample_positions(prediction_scores: np.ndarray, row_strength: np.ndarray) -> List[int]:
-    if prediction_scores.size == 0:
-        return []
-
-    positions = [
-        int(np.argmax(prediction_scores)),
-        int(np.argmin(prediction_scores)),
-        int(np.argmin(np.abs(prediction_scores - 0.5))),
-    ]
-    positions.extend(int(position) for position in np.argsort(-row_strength).tolist())
-
-    unique_positions: List[int] = []
-    for position in positions:
-        if position not in unique_positions:
-            unique_positions.append(position)
-        if len(unique_positions) >= LOCAL_EXPLANATION_LIMIT:
-            break
-    return unique_positions
-
-
-def extract_json_object(text: str) -> Optional[Dict[str, Any]]:
-    if not text:
+        feature_frame = feature_frame.drop(columns=[target_column], errors="ignore")
+    if feature_frame.empty:
         return None
+    pred_series = df[prediction_column]
+    if is_probability_like(pred_series):
+        pred_binary = (pd.to_numeric(pred_series, errors="coerce").fillna(0) >= 0.5).astype(int)
+    else:
+        pred_binary = normalize_binary(pred_series, positive_label)
     try:
-        payload = json.loads(text)
-        return payload if isinstance(payload, dict) else None
-    except json.JSONDecodeError:
-        pass
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        return None
-
-    try:
-        payload = json.loads(text[start : end + 1])
-        return payload if isinstance(payload, dict) else None
-    except json.JSONDecodeError:
+        bundle = train_production_pipeline(
+            pd.concat([feature_frame, pred_binary.rename(prediction_column)], axis=1),
+            prediction_column, positive_label, sensitive_columns,
+            apply_reweighing=False,
+        )
+        bundle["model_source"] = "prediction_surrogate_model"
+        return bundle
+    except Exception:
         return None
 
 
-def extract_gemini_text(response_payload: Dict[str, Any]) -> str:
-    parts: List[str] = []
-    for candidate in response_payload.get("candidates", []):
-        content = candidate.get("content", {})
-        for part in content.get("parts", []):
-            text = part.get("text")
-            if text:
-                parts.append(str(text))
-    return "\n".join(parts).strip()
-
-
-def build_gemini_narrative(
-    source_name: str,
-    resolved_domain: str,
-    fairness_summary: Dict[str, Any],
-    findings: List[Dict[str, Any]],
-    explainability: Dict[str, Any],
-    gemini_api_key: Optional[str],
-) -> Dict[str, Any]:
-    api_key = (gemini_api_key or os.getenv("GEMINI_API_KEY", "")).strip()
-    if not api_key:
-        return {
-            "status": "not_configured",
-            "model": GEMINI_MODEL,
-            "summary": None,
-            "key_points": [],
-            "risk_statement": "Gemini narration is available, but no Gemini API key was supplied for this analysis run.",
-            "recommended_focus": "Pass geminiApiKey during upload or set GEMINI_API_KEY for the ml-service.",
-        }
-
-    worst_findings = sorted(findings, key=lambda item: item["fairness_score"])[:2]
-    payload = {
-        "dataset": source_name,
-        "domain": resolved_domain,
-        "overall_fairness_score": fairness_summary.get("overall_fairness_score"),
-        "corrected_fairness_score": fairness_summary.get("corrected_fairness_score"),
-        "fairness_target": fairness_summary.get("fairness_target"),
-        "fairness_target_met": fairness_summary.get("fairness_target_met"),
-        "worst_group_findings": [
-            {
-                "sensitive_column": item.get("sensitive_column"),
-                "fairness_score": item.get("fairness_score"),
-                "disparate_impact": item.get("disparate_impact"),
-                "demographic_parity_difference": item.get("demographic_parity_difference"),
-            }
-            for item in worst_findings
-        ],
-        "global_shap_drivers": [
-            {
-                "feature": item.get("feature"),
-                "mean_abs_shap": item.get("mean_abs_shap"),
-                "importance_share": item.get("importance_share"),
-                "direction": item.get("direction"),
-                "sensitive": item.get("sensitive"),
-            }
-            for item in explainability.get("global_feature_importance", [])[:5]
-        ],
-        "local_examples": [
-            {
-                "sample_id": item.get("sample_id"),
-                "prediction_probability": item.get("prediction_probability"),
-                "top_contributors": [
-                    {
-                        "feature": contributor.get("feature"),
-                        "value": contributor.get("value"),
-                        "direction": contributor.get("direction"),
-                        "shap_value": contributor.get("shap_value"),
-                        "sensitive": contributor.get("sensitive"),
-                    }
-                    for contributor in item.get("top_contributors", [])[:3]
-                ],
-            }
-            for item in explainability.get("local_explanations", [])[:2]
-        ],
-    }
-    prompt = (
-        "You explain fairness audits for product managers.\n"
-        "Use only the supplied numbers.\n"
-        "Return strict JSON with keys: summary, key_points, risk_statement, recommended_focus.\n"
-        "summary should be 2 to 3 short sentences. key_points should be an array of exactly 3 short bullets.\n"
-        "Do not mention missing information or the prompt.\n"
-        f"{json.dumps(payload, ensure_ascii=True)}"
-    )
-    request_payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.2,
-            "responseMimeType": "application/json",
-        },
-    }
-    endpoint = f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent?key={api_key}"
-    request = urllib.request.Request(
-        endpoint,
-        data=json.dumps(request_payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            response_payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        error_body = exc.read().decode("utf-8", errors="ignore") if hasattr(exc, "read") else str(exc)
-        return {
-            "status": "error",
-            "model": GEMINI_MODEL,
-            "summary": None,
-            "key_points": [],
-            "risk_statement": "Gemini narration failed.",
-            "recommended_focus": "Verify the Gemini API key and model access, then rerun the analysis.",
-            "error": error_body or str(exc),
-        }
-    except Exception as exc:  # pragma: no cover - depends on outbound network runtime
-        return {
-            "status": "error",
-            "model": GEMINI_MODEL,
-            "summary": None,
-            "key_points": [],
-            "risk_statement": "Gemini narration failed.",
-            "recommended_focus": "Check outbound network access from the ml-service and rerun the analysis.",
-            "error": str(exc),
-        }
-
-    text = extract_gemini_text(response_payload)
-    parsed = extract_json_object(text)
-    if parsed:
-        key_points = parsed.get("key_points") if isinstance(parsed.get("key_points"), list) else []
-        return {
-            "status": "available",
-            "model": GEMINI_MODEL,
-            "summary": str(parsed.get("summary", "")).strip() or None,
-            "key_points": [str(item).strip() for item in key_points if str(item).strip()],
-            "risk_statement": str(parsed.get("risk_statement", "")).strip() or None,
-            "recommended_focus": str(parsed.get("recommended_focus", "")).strip() or None,
-        }
-
-    return {
-        "status": "available",
-        "model": GEMINI_MODEL,
-        "summary": text or "Gemini returned a response, but it did not match the requested JSON structure.",
-        "key_points": [],
-        "risk_statement": None,
-        "recommended_focus": None,
-    }
-
-
-def build_tree_shap_explainability(
-    df: pd.DataFrame,
-    sensitive_columns: List[str],
-    model_bundle: Dict[str, Any],
-) -> Dict[str, Any]:
-    if not XGBOOST_AVAILABLE or DMatrix is None:
-        raise RuntimeError(f"XGBoost runtime is unavailable: {XGBOOST_IMPORT_ERROR}")
-
-    pipeline = model_bundle["pipeline"]
-    feature_columns = [column for column in model_bundle.get("feature_columns", []) if column in df.columns]
-    if not feature_columns:
-        raise RuntimeError("No model feature columns were available for TreeSHAP generation.")
-
-    feature_frame = apply_category_compactors(df[feature_columns].copy(), model_bundle.get("compactors", {}))
-    preprocessor = pipeline.named_steps["preprocessor"]
-    estimator = pipeline.named_steps["model"]
-    transformed = preprocessor.transform(feature_frame)
-    feature_names = preprocessor.get_feature_names_out().tolist()
-    booster = estimator.get_booster()
-    contributions = booster.predict(
-        DMatrix(transformed, feature_names=feature_names),
-        pred_contribs=True,
-        validate_features=False,
-    )
-    if contributions.ndim != 2 or contributions.shape[1] <= 1:
-        raise RuntimeError("TreeSHAP prediction output was empty.")
-
-    bias_terms = contributions[:, -1]
-    feature_contributions = contributions[:, :-1]
-    source_map = build_transformed_feature_source_map(feature_names, model_bundle, preprocessor)
-    raw_feature_names, aggregated = aggregate_contributions_by_feature(
-        feature_contributions,
-        feature_names,
-        feature_columns,
-        source_map,
-    )
-
-    mean_abs = np.mean(np.abs(aggregated), axis=0)
-    mean_signed = np.mean(aggregated, axis=0)
-    total_abs = max(float(np.sum(mean_abs)), 1e-9)
-
-    global_feature_importance = []
-    for idx, feature_name in enumerate(raw_feature_names):
-        if mean_abs[idx] <= 0:
-            continue
-        signed_value = float(mean_signed[idx])
-        direction = (
-            "pushes toward the positive outcome"
-            if signed_value > 0.001
-            else "pushes away from the positive outcome"
-            if signed_value < -0.001
-            else "mixed influence"
-        )
-        global_feature_importance.append(
-            {
-                "feature": feature_name,
-                "mean_abs_shap": round(float(mean_abs[idx]), 6),
-                "average_directional_shap": round(signed_value, 6),
-                "importance_share": round(float(mean_abs[idx] / total_abs), 4),
-                "direction": direction,
-                "sensitive": feature_name in set(sensitive_columns),
-                "summary": f"{feature_name} {direction} in the XGBoost analysis model.",
-            }
-        )
-    global_feature_importance = sorted(
-        global_feature_importance,
-        key=lambda item: float(item["mean_abs_shap"]),
-        reverse=True,
-    )[:GLOBAL_SHAP_FEATURE_LIMIT]
-
-    prediction_scores = np.asarray(
-        model_bundle.get("prediction_scores")
-        if model_bundle.get("prediction_scores") is not None
-        else predict_in_batches(pipeline, feature_frame),
-        dtype=float,
-    )
-    row_strength = np.sum(np.abs(aggregated), axis=1)
-    local_positions = select_local_sample_positions(prediction_scores, row_strength)
-    local_explanations = []
-    for rank, position in enumerate(local_positions, start=1):
-        top_indices = np.argsort(np.abs(aggregated[position]))[::-1][:LOCAL_CONTRIBUTOR_LIMIT]
-        top_total = max(float(np.sum(np.abs(aggregated[position, top_indices]))), 1e-9)
-        top_contributors = []
-        for feature_idx in top_indices:
-            feature_name = raw_feature_names[feature_idx]
-            shap_value = float(aggregated[position, feature_idx])
-            top_contributors.append(
-                {
-                    "feature": feature_name,
-                    "value": format_feature_value(feature_frame.iloc[position][feature_name]) if feature_name in feature_frame.columns else "derived",
-                    "shap_value": round(shap_value, 6),
-                    "magnitude": round(abs(shap_value), 6),
-                    "importance_share": round(abs(shap_value) / top_total, 4),
-                    "direction": "raises the positive-outcome score" if shap_value > 0 else "lowers the positive-outcome score" if shap_value < 0 else "neutral",
-                    "sensitive": feature_name in set(sensitive_columns),
-                }
-            )
-
-        row_index = df.index[position]
-        lead_features = ", ".join(item["feature"] for item in top_contributors[:2]) or "multiple features"
-        probability = float(prediction_scores[position]) if position < prediction_scores.shape[0] else 0.0
-        local_explanations.append(
-            {
-                "sample_id": f"sample-{rank}",
-                "row_index": int(row_index) if isinstance(row_index, (int, np.integer)) else str(row_index),
-                "prediction_probability": round(probability, 4),
-                "predicted_label": int(probability >= 0.5),
-                "baseline_probability": round(sigmoid(float(bias_terms[position])), 4),
-                "summary": (
-                    f"Sample {rank} is driven mostly by {lead_features}. "
-                    f"The positive-outcome probability is {probability:.2f}."
-                ),
-                "top_contributors": top_contributors,
-            }
-        )
-
-    top_features = [
-        {
-            "feature": item["feature"],
-            "score": item["importance_share"],
-            "weight": item["mean_abs_shap"],
-            "direction": item["direction"],
-            "reason": "tree_shap",
-        }
-        for item in global_feature_importance
-    ]
-    shap_style_summary = [
-        {
-            "feature": item["feature"],
-            "impact": item["importance_share"],
-            "direction": item["direction"],
-            "summary": item["summary"],
-        }
-        for item in global_feature_importance
-    ]
-    lime_style_example = [
-        {
-            "feature": contributor["feature"],
-            "impact": contributor["magnitude"],
-            "direction": contributor["direction"],
-            "summary": local_explanations[0]["summary"] if local_explanations else contributor["direction"],
-        }
-        for contributor in (local_explanations[0]["top_contributors"] if local_explanations else [])[:3]
-    ]
-
-    model_source = str(model_bundle.get("model_source", "xgboost_training_model"))
-    return {
-        "status": "model_based" if model_source == "xgboost_training_model" else "surrogate_model_based",
-        "method": "TreeSHAP",
-        "model_source": model_source,
-        "methods_available": ["TreeSHAP global importance", "TreeSHAP local explanations"],
-        "methods_unavailable": [],
-        "top_features": top_features,
-        "shap_style_summary": shap_style_summary,
-        "lime_style_example": lime_style_example,
-        "global_feature_importance": global_feature_importance,
-        "local_explanations": local_explanations,
-        "note": "TreeSHAP attributions were computed from the trained XGBoost pipeline for this run.",
-    }
-
-
-def build_explainability(
-    df: pd.DataFrame,
-    prediction_column: str,
-    target_column: Optional[str],
-    sensitive_columns: List[str],
-    source_name: str,
-    resolved_domain: str,
-    fairness_summary: Dict[str, Any],
-    findings: List[Dict[str, Any]],
-    model_bundle: Optional[Dict[str, Any]],
-    gemini_api_key: Optional[str],
-) -> Dict[str, Any]:
-    if not model_bundle:
-        return build_proxy_explainability(
-            df,
-            prediction_column,
-            target_column,
-            sensitive_columns,
-            note="No XGBoost model bundle was available for TreeSHAP, so the service used a proxy-risk fallback scan.",
-        )
-
-    try:
-        explainability = build_tree_shap_explainability(df, sensitive_columns, model_bundle)
-    except Exception as exc:
-        fallback = build_proxy_explainability(
-            df,
-            prediction_column,
-            target_column,
-            sensitive_columns,
-            note=f"TreeSHAP generation failed ({exc}). Proxy-risk fallback was returned instead.",
-        )
-        fallback["error"] = str(exc)
-        return fallback
-
-    gemini_narrative = build_gemini_narrative(
-        source_name,
-        resolved_domain,
-        fairness_summary,
-        findings,
-        explainability,
-        gemini_api_key,
-    )
-    explainability["gemini_narrative"] = gemini_narrative
-    if gemini_narrative.get("status") == "available":
-        explainability["methods_available"].append("Gemini plain-language narration")
-    else:
-        explainability["methods_unavailable"].append("Gemini plain-language narration")
-    return explainability
-
-
-def build_analysis_log(
-    source_name: str,
-    requested_domain: str,
-    resolved_domain: str,
-    target_column: Optional[str],
-    prediction_column: str,
-    sensitive_columns: List[str],
-    used_surrogate_model: bool,
-    fairness_score: float,
-    corrected_score: float,
-    large_dataset_mode: bool,
-    training_rows_used: int,
-    correction_summary: Dict[str, Any],
-    spark_acceleration_active: bool,
-    reweighing_applied: bool,
-    intersectional_count: int,
-) -> List[Dict[str, Any]]:
-    start = datetime.utcnow()
-    rows = [
-        ("Dataset intake", "completed", f"Loaded {source_name} and normalized headers."),
-        ("Domain resolution", "completed", f"Requested domain '{requested_domain}' resolved to '{resolved_domain}'."),
-        ("Column detection", "completed", f"Target={target_column or 'none'}, prediction={prediction_column}, sensitive={', '.join(sensitive_columns)}."),
-        (
-            "Scale orchestration",
-            "completed",
-            f"{'Large' if large_dataset_mode else 'Standard'} dataset mode active with "
-            f"{'Spark-assisted ' if spark_acceleration_active else ''}sampled training capped at {training_rows_used} rows.",
-        ),
-        (
-            "Prediction stage",
-            "completed",
-            "Generated XGBoost surrogate predictions." if used_surrogate_model else "Used supplied prediction column.",
-        ),
-        (
-            "Training debiasing",
-            "completed",
-            "Applied intersectional reweighing during XGBoost training." if reweighing_applied else "Skipped training-time reweighing.",
-        ),
-        (
-            "Intersectional audit",
-            "completed",
-            f"Evaluated {intersectional_count} intersectional fairness slices." if intersectional_count else "No intersectional slices were available for audit.",
-        ),
-        ("Fairness evaluation", "completed", f"Computed fairness score {fairness_score:.2f}."),
-        ("Root-cause scan", "completed", "Evaluated representation imbalance and proxy-feature risk."),
-        ("Correction engine", "completed", f"Applied {correction_summary['method']} and produced corrected fairness estimate {corrected_score:.2f}."),
-        ("Artifact synthesis", "completed", "Prepared corrected CSV and report payload."),
-    ]
-    logs = []
-    for index, (stage, status, message) in enumerate(rows):
-        logs.append({
-            "timestamp": (start + timedelta(seconds=index)).isoformat() + "Z",
-            "stage": stage.lower().replace(" ", "_"),
-            "title": stage,
-            "detail": message,
-            "status": "complete" if status == "completed" else status,
-        })
-    return logs
-
-
-def compute_overall_accuracy(df: pd.DataFrame, target_column: Optional[str], prediction_column: str, positive_label: Any) -> float:
+def _compute_overall_accuracy(
+    df: pd.DataFrame, target_column: Optional[str],
+    prediction_column: str, positive_label: Any,
+) -> float:
     if not target_column or target_column not in df.columns:
         return 0.0
     target = normalize_binary(df[target_column], positive_label)
     if is_probability_like(df[prediction_column]):
-        prediction = (pd.to_numeric(df[prediction_column], errors="coerce").fillna(0) >= 0.5).astype(int)
+        pred = (pd.to_numeric(df[prediction_column], errors="coerce").fillna(0) >= 0.5).astype(int)
     else:
-        prediction = normalize_binary(df[prediction_column], positive_label)
-    return float((target == prediction).mean())
+        pred = normalize_binary(df[prediction_column], positive_label)
+    return float((target == pred).mean())
 
 
-def build_report_markdown(
-    source_name: str,
-    resolved_domain: str,
-    fairness_summary: Dict[str, Any],
-    findings: List[Dict[str, Any]],
-    intersectional_findings: List[Dict[str, Any]],
-    corrected_findings: List[Dict[str, Any]],
-    corrected_intersectional_findings: List[Dict[str, Any]],
-    root_causes: List[Dict[str, Any]],
-    recommendations: List[Dict[str, Any]],
-    analysis_log: List[Dict[str, Any]],
-    explainability: Dict[str, Any],
-    correction_summary: Dict[str, Any],
-    reweighing_summary: Dict[str, Any],
+def _build_validation_comparison(
+    before_findings: List[Dict], after_findings: List[Dict],
+    before_inter: List[Dict], after_inter: List[Dict],
+    before_score: float, after_score: float,
+) -> Dict[str, Any]:
+    """PART 6: Before/after fairness validation on structured metrics."""
+    before_metrics = {}
+    after_metrics = {}
+    improvement = {}
+    for bf in before_findings:
+        col = bf["sensitive_column"]
+        before_metrics[col] = {
+            "disparate_impact": bf["disparate_impact"],
+            "demographic_parity_diff": bf["demographic_parity_difference"],
+            "equalized_odds_gap": bf.get("equalized_odds_gap", 0),
+            "fairness_score": bf["fairness_score"],
+        }
+    for af in after_findings:
+        col = af["sensitive_column"]
+        after_metrics[col] = {
+            "disparate_impact": af["disparate_impact"],
+            "demographic_parity_diff": af["demographic_parity_difference"],
+            "equalized_odds_gap": af.get("equalized_odds_gap", 0),
+            "fairness_score": af["fairness_score"],
+        }
+        if col in before_metrics:
+            improvement[col] = {
+                "disparate_impact_change": round(af["disparate_impact"] - before_metrics[col]["disparate_impact"], 4),
+                "dp_diff_change": round(af["demographic_parity_difference"] - before_metrics[col]["demographic_parity_diff"], 4),
+                "fairness_score_change": round(af["fairness_score"] - before_metrics[col]["fairness_score"], 2),
+            }
+    return {
+        "before": {"overall_score": before_score, "per_attribute": before_metrics},
+        "after": {"overall_score": after_score, "per_attribute": after_metrics},
+        "improvement": {
+            "overall_score_change": round(after_score - before_score, 2),
+            "per_attribute": improvement,
+        },
+        "validated_on_holdout": True,
+    }
+
+
+def _build_explanation(
+    domain, source_name, fairness_summary, findings,
+    intersectional_findings, root_causes, reweighing_summary, explainability,
+) -> Dict[str, Any]:
+    worst = sorted(findings, key=lambda x: x["fairness_score"])[0] if findings else None
+    worst_inter = sorted(intersectional_findings, key=lambda x: x["fairness_score"])[0] if intersectional_findings else None
+    summary = (
+        f"Analysis for {source_name} in {domain} domain: overall fairness {fairness_summary['overall_fairness_score']}, "
+        f"corrected {fairness_summary.get('corrected_fairness_score', 'N/A')}."
+    )
+    if worst:
+        summary += f" Most affected: '{worst['sensitive_column']}' (DI={worst['disparate_impact']}, DP gap={worst['demographic_parity_difference']})."
+    if worst_inter:
+        summary += f" Worst intersectional: '{worst_inter['sensitive_column']}' ({worst_inter['fairness_score']})."
+    gemini_summary = explainability.get("gemini_narrative", {}).get("summary")
+    gemini_points = explainability.get("gemini_narrative", {}).get("key_points", [])
+    plain_language = [
+        *[str(p) for p in gemini_points if str(p).strip()],
+        "The system compares outcomes across sensitive groups, not just overall accuracy.",
+        "Intersectional fairness checks combined identities for larger disparities.",
+        "Low disparate impact means one group receives favorable outcomes less often.",
+        "SHAP values show which inputs push predictions toward or away from positive outcomes.",
+        "Correction uses constrained optimization to find per-group thresholds.",
+        "Validation compares fairness BEFORE and AFTER correction on held-out data.",
+    ]
+    return {
+        "executive_summary": gemini_summary or summary,
+        "plain_language": list(dict.fromkeys(plain_language)),
+    }
+
+
+def _build_recommendations(
+    findings: List[Dict], root_causes: List[Dict],
+    reweighing_summary: Optional[Dict] = None,
+) -> List[Dict[str, Any]]:
+    recs: List[Dict[str, Any]] = []
+    for f in findings:
+        if f["disparate_impact"] < 0.8:
+            recs.append({
+                "category": "data", "priority": "high",
+                "title": f"Rebalance data for {f['sensitive_column']}",
+                "description": "Increase representation or apply reweighting for groups with lower positive outcomes.",
+            })
+        if f.get("accuracy_spread", 0) > 0.1:
+            recs.append({
+                "category": "model", "priority": "medium",
+                "title": f"Retrain with fairness constraints on {f['sensitive_column']}",
+                "description": "Validate equal opportunity and reduce per-group error gaps.",
+            })
+        if f.get("is_intersectional") and (f["fairness_score"] < 85 or f["disparate_impact"] < 0.8):
+            recs.append({
+                "category": "intersectional",
+                "priority": "high" if f["fairness_score"] < 65 else "medium",
+                "title": f"Audit intersectional disparity: {f['sensitive_column']}",
+                "description": "Review combined demographic slices.",
+            })
+    for c in root_causes:
+        if c["type"] == "proxy_feature_risk":
+            recs.append({"category": "feature", "priority": c["severity"],
+                         "title": f"Audit proxy feature: {c['feature']}", "description": c["details"]})
+        elif c["type"] == "representation_imbalance":
+            recs.append({"category": "governance", "priority": c["severity"],
+                         "title": f"Review sample coverage for {c['sensitive_column']}", "description": c["details"]})
+        elif c["type"] == "intersectional_disparity":
+            recs.append({"category": "intersectional", "priority": c["severity"],
+                         "title": f"Strengthen mitigation for {c['sensitive_column']}", "description": c["details"]})
+    recs.append({"category": "ci_cd", "priority": "high",
+                 "title": "Add a fairness gate to CI/CD",
+                 "description": "Block deployment when fairness score drops below threshold."})
+    seen = set()
+    unique = []
+    for r in recs:
+        key = (r["category"], r["title"])
+        if key not in seen:
+            unique.append(r)
+            seen.add(key)
+    return unique
+
+
+def _build_analysis_log(
+    source_name, requested_domain, resolved_domain,
+    target_column, prediction_column, sensitive_columns,
+    used_surrogate, fairness_score, corrected_score,
+    large_dataset_mode, training_rows_used, correction_summary,
+    spark_active, reweighing_applied, intersectional_count,
+) -> List[Dict[str, Any]]:
+    start = datetime.utcnow()
+    rows = [
+        ("Dataset intake", "completed", f"Loaded {source_name}."),
+        ("Domain resolution", "completed", f"'{requested_domain}' resolved to '{resolved_domain}'."),
+        ("Column detection", "completed", f"Target={target_column}, prediction={prediction_column}, sensitive={', '.join(sensitive_columns)}."),
+        ("ML Pipeline", "completed", f"XGBoost with RandomizedSearchCV + isotonic calibration. {training_rows_used} training rows." if used_surrogate else "Used supplied predictions."),
+        ("Fairness evaluation", "completed", f"Computed structured fairness metrics. Score: {fairness_score:.2f}."),
+        ("Root-cause scan", "completed", "Evaluated representation imbalance and proxy-feature risk."),
+        ("Correction engine", "completed", f"Applied {correction_summary['method']}. Corrected score: {corrected_score:.2f}."),
+        ("Validation", "completed", "Compared before/after fairness on held-out test set."),
+        ("Artifact synthesis", "completed", "Prepared corrected CSV and report."),
+    ]
+    return [
+        {
+            "timestamp": (start + timedelta(seconds=i)).isoformat() + "Z",
+            "stage": stage.lower().replace(" ", "_"),
+            "title": stage,
+            "detail": msg,
+            "status": "complete",
+        }
+        for i, (stage, _, msg) in enumerate(rows)
+    ]
+
+
+def _build_report_markdown(
+    source_name, resolved_domain, fairness_summary, findings,
+    intersectional_findings, corrected_findings, corrected_intersectional,
+    root_causes, recommendations, analysis_log, explainability,
+    correction_summary, reweighing_summary, model_evaluation, validation,
 ) -> str:
     lines = [
-        "# FairAI Audit Report",
-        "",
-        f"Dataset: {source_name}",
-        f"Domain: {resolved_domain}",
+        "# FairAI Audit Report (v2.0)", "",
+        f"Dataset: {source_name}", f"Domain: {resolved_domain}",
         f"Overall fairness score: {fairness_summary['overall_fairness_score']}",
         f"Corrected fairness score: {fairness_summary['corrected_fairness_score']}",
-        f"Fairness target: {fairness_summary['fairness_target']}",
         f"Target met: {fairness_summary['fairness_target_met']}",
         f"Risk level: {fairness_summary['risk_level']}",
-        f"Intersectional fairness score: {fairness_summary.get('intersectional_fairness_score')}",
-        f"Intersectional corrected fairness score: {fairness_summary.get('intersectional_corrected_fairness_score')}",
-        "Surrogate model: xgboost",
-        f"Training reweighing applied: {reweighing_summary.get('applied', False)}",
         f"Correction method: {correction_summary['method']}",
-        "",
-        "## Sensitive Findings",
     ]
-    for finding in findings:
-        lines.append(
-            f"- {finding['sensitive_column']}: fairness {finding['fairness_score']}, DI {finding['disparate_impact']}, DP gap {finding['demographic_parity_difference']}"
-        )
+    if model_evaluation:
+        lines.extend([
+            "", "## Model Evaluation (Held-Out Test Set)",
+            f"- Accuracy: {model_evaluation['accuracy']}",
+            f"- Precision: {model_evaluation['precision']}",
+            f"- Recall: {model_evaluation['recall']}",
+            f"- F1 Score: {model_evaluation['f1_score']}",
+            f"- ROC-AUC: {model_evaluation['roc_auc']}",
+            f"- Test set size: {model_evaluation['test_set_size']}",
+        ])
+    if validation:
+        lines.extend([
+            "", "## Fairness Validation (Before → After)",
+            f"- Overall: {validation['before']['overall_score']} → {validation['after']['overall_score']} "
+            f"(Δ {validation['improvement']['overall_score_change']:+.2f})",
+        ])
+    lines.extend(["", "## Sensitive Findings"])
+    for f in findings:
+        lines.append(f"- {f['sensitive_column']}: DI={f['disparate_impact']}, DP gap={f['demographic_parity_difference']}, EO gap={f.get('equalized_odds_gap', 'N/A')}")
     lines.extend(["", "## Corrected Findings"])
-    for finding in corrected_findings:
-        lines.append(
-            f"- {finding['sensitive_column']}: fairness {finding['fairness_score']}, DI {finding['disparate_impact']}, DP gap {finding['demographic_parity_difference']}"
-        )
+    for f in corrected_findings:
+        lines.append(f"- {f['sensitive_column']}: DI={f['disparate_impact']}, DP gap={f['demographic_parity_difference']}")
     lines.extend(["", "## Intersectional Findings"])
-    for finding in intersectional_findings:
-        lines.append(
-            f"- {finding['sensitive_column']}: fairness {finding['fairness_score']}, DI {finding['disparate_impact']}, DP gap {finding['demographic_parity_difference']}"
-        )
-    lines.extend(["", "## Corrected Intersectional Findings"])
-    for finding in corrected_intersectional_findings:
-        lines.append(
-            f"- {finding['sensitive_column']}: fairness {finding['fairness_score']}, DI {finding['disparate_impact']}, DP gap {finding['demographic_parity_difference']}"
-        )
+    for f in intersectional_findings:
+        lines.append(f"- {f['sensitive_column']}: DI={f['disparate_impact']}, DP gap={f['demographic_parity_difference']}")
     lines.extend(["", "## Root Causes"])
-    for cause in root_causes:
-        lines.append(f"- {cause['type']}: {cause['details']}")
+    for c in root_causes:
+        lines.append(f"- {c['type']}: {c['details']}")
     lines.extend(["", "## Recommendations"])
-    for rec in recommendations:
-        lines.append(f"- {rec['title']}: {rec['description']}")
+    for r in recommendations:
+        lines.append(f"- {r['title']}: {r['description']}")
     lines.extend(["", "## Explainability"])
-    for feature in explainability["top_features"]:
-        lines.append(f"- {feature['feature']}: {feature['reason']} ({feature['score']})")
-    if explainability.get("global_feature_importance"):
-        lines.extend(["", "## TreeSHAP Global Drivers"])
-        for feature in explainability.get("global_feature_importance", [])[:5]:
-            lines.append(
-                f"- {feature['feature']}: mean_abs_shap {feature['mean_abs_shap']}, share {feature['importance_share']}, {feature['direction']}"
-            )
-    if explainability.get("local_explanations"):
-        lines.extend(["", "## TreeSHAP Local Examples"])
-        for sample in explainability.get("local_explanations", [])[:3]:
-            lines.append(
-                f"- {sample['sample_id']} (row {sample['row_index']}): probability {sample['prediction_probability']}, baseline {sample['baseline_probability']}"
-            )
-            for contributor in sample.get("top_contributors", [])[:3]:
-                lines.append(
-                    f"  - {contributor['feature']}={contributor['value']}: {contributor['direction']} ({contributor['shap_value']})"
-                )
-    gemini_narrative = explainability.get("gemini_narrative", {})
-    if gemini_narrative.get("summary"):
-        lines.extend(["", "## Gemini Narrative", gemini_narrative["summary"]])
-        for point in gemini_narrative.get("key_points", []):
-            lines.append(f"- {point}")
-        if gemini_narrative.get("risk_statement"):
-            lines.append(f"- Risk statement: {gemini_narrative['risk_statement']}")
-        if gemini_narrative.get("recommended_focus"):
-            lines.append(f"- Recommended focus: {gemini_narrative['recommended_focus']}")
+    for f in explainability.get("top_features", []):
+        lines.append(f"- {f['feature']}: {f.get('reason', 'shap')} ({f.get('score', 0)})")
+    if explainability.get("category_level_importance"):
+        lines.extend(["", "## Category-Level SHAP Importance"])
+        for f in explainability["category_level_importance"][:10]:
+            lines.append(f"- {f['feature']}: mean_abs_shap={f['mean_abs_shap']}, {f['direction']}")
     lines.extend(["", "## Analysis Log"])
-    for entry in analysis_log:
-        lines.append(f"- {entry['title']}: {entry['detail']}")
+    for e in analysis_log:
+        lines.append(f"- {e['title']}: {e['detail']}")
     return "\n".join(lines)
-
-
-def safe_divide(numerator: float, denominator: float) -> float:
-    return float(numerator / denominator) if denominator else 0.0
-
-
-def score_to_risk(score: float) -> str:
-    if score >= 85:
-        return "low"
-    if score >= 65:
-        return "medium"
-    return "high"
