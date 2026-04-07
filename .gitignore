@@ -26,7 +26,9 @@ client/.env*
 backend.7z
 backend/src/data/
 docs
-
+biased_hiring_500lakh.csv
+sample.py
+biased_hiring_sample.csv
 # =========================
 # BACKEND (Node / Express)
 # =========================
