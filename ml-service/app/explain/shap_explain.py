@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from importlib.util import find_spec
 from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
 
-try:
+SHAP_AVAILABLE = find_spec("shap") is not None
+
+
+def _load_shap() -> Any:
     import shap
-    SHAP_AVAILABLE = True
-except Exception:
-    SHAP_AVAILABLE = False
-    shap = None  # type: ignore
+
+    return shap
 
 
 def _feature_names(model_artifact: Any, fallback: List[str]) -> List[str]:
@@ -58,10 +60,11 @@ def build_explainability(
     sensitive_lower = {c.lower() for c in sensitive_columns}
 
     model_source = str(model_bundle.get("selected_model", "")).lower()
-    use_fast_tree_shap = any(token in model_source for token in ["xgboost", "lightgbm", "catboost"])
+    use_fast_tree_shap = any(token in model_source for token in ["xgboost", "lightgbm", "catboost"]) and len(df) <= 2000
 
     if SHAP_AVAILABLE and use_fast_tree_shap:
         try:
+            shap = _load_shap()
             base_model = raw_pipeline.named_steps["model"]
             explainer = shap.TreeExplainer(base_model)
             shap_values = explainer(transformed)

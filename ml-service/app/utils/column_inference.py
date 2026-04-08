@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -51,6 +51,12 @@ class InferenceResult:
     candidate_sensitive_columns: List[str]
     profiling: Dict[str, Dict[str, Any]]
     warnings: List[str]
+    target_confidence: str
+    prediction_confidence: str
+    sensitive_confidence: str
+    target_candidates: List[Dict[str, Any]]
+    prediction_candidates: List[Dict[str, Any]]
+    sensitive_candidates: List[Dict[str, Any]]
 
 
 def sanitize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -204,6 +210,36 @@ def _score_sensitive(col: str, p: ColumnProfile) -> float:
     return score
 
 
+def _rank_columns(
+    profiles: Dict[str, ColumnProfile],
+    scorer: Any,
+) -> List[Tuple[float, str]]:
+    return sorted(((float(scorer(c, p)), c) for c, p in profiles.items()), reverse=True)
+
+
+def _confidence_from_ranked(ranked: List[Tuple[float, str]], selected: Optional[str], kind: str) -> str:
+    if not selected:
+        return "low"
+    selected_score = next((score for score, col in ranked if col == selected), float("-inf"))
+    second_score = next((score for score, col in ranked if col != selected), float("-inf"))
+    gap = selected_score - second_score if second_score != float("-inf") else selected_score
+
+    high_thresholds = {"target": 18.0, "prediction": 16.0, "sensitive": 14.0}
+    medium_thresholds = {"target": 10.0, "prediction": 9.0, "sensitive": 8.0}
+    high_gap = {"target": 4.0, "prediction": 4.0, "sensitive": 3.0}
+    medium_gap = {"target": 2.0, "prediction": 2.0, "sensitive": 1.0}
+
+    if selected_score >= high_thresholds[kind] and gap >= high_gap[kind]:
+        return "high"
+    if selected_score >= medium_thresholds[kind] and gap >= medium_gap[kind]:
+        return "medium"
+    return "low"
+
+
+def _serialize_ranked(ranked: List[Tuple[float, str]], limit: int = 5) -> List[Dict[str, Any]]:
+    return [{"column": column, "score": round(float(score), 4)} for score, column in ranked[:limit]]
+
+
 def infer_columns(
     df: pd.DataFrame,
     requested_target: Optional[str] = None,
@@ -214,15 +250,15 @@ def infer_columns(
     profiles = profile_columns(df)
     warnings: List[str] = []
 
+    target_ranked = _rank_columns(profiles, _score_target)
     target = requested_target if requested_target in df.columns else None
     if target is None:
-        ranked = sorted((( _score_target(c, p), c) for c, p in profiles.items()), reverse=True)
-        target = ranked[0][1] if ranked and ranked[0][0] > 0 else None
+        target = target_ranked[0][1] if target_ranked and target_ranked[0][0] > 0 else None
 
+    prediction_ranked = _rank_columns(profiles, _score_prediction)
     pred = requested_prediction if requested_prediction in df.columns else None
     if pred is None:
-        ranked = sorted(((_score_prediction(c, p), c) for c, p in profiles.items()), reverse=True)
-        pred = ranked[0][1] if ranked and ranked[0][0] > 0 else None
+        pred = prediction_ranked[0][1] if prediction_ranked and prediction_ranked[0][0] > 0 else None
 
     prob = None
     if pred and profiles[pred].is_probability_like:
@@ -232,7 +268,8 @@ def infer_columns(
         if prob_ranked and prob_ranked[0][0] > 0:
             prob = prob_ranked[0][1]
 
-    candidates = [c for _, c in sorted(((_score_sensitive(c, p), c) for c, p in profiles.items()), reverse=True) if _score_sensitive(c, profiles[c]) > 0]
+    sensitive_ranked = _rank_columns(profiles, _score_sensitive)
+    candidates = [c for score, c in sensitive_ranked if score > 0]
     sensitive = [c for c in (requested_sensitive or []) if c in df.columns and c != target]
     if not sensitive:
         sensitive = [c for c in candidates if c not in {target, pred}][:3]
@@ -247,5 +284,46 @@ def infer_columns(
     if not sensitive:
         warnings.append("Sensitive columns could not be inferred confidently.")
 
+    target_confidence = "high" if requested_target and requested_target in df.columns else _confidence_from_ranked(target_ranked, target, "target")
+    prediction_confidence = "high" if requested_prediction and requested_prediction in df.columns else _confidence_from_ranked(prediction_ranked, pred, "prediction")
+
+    if requested_sensitive:
+        sensitive_confidence = "high"
+    elif sensitive:
+        selected_scores = [
+            next((score for score, col in sensitive_ranked if col == selected), 0.0)
+            for selected in sensitive
+        ]
+        avg_sensitive_score = float(np.mean(selected_scores)) if selected_scores else 0.0
+        if avg_sensitive_score >= 14:
+            sensitive_confidence = "high"
+        elif avg_sensitive_score >= 8:
+            sensitive_confidence = "medium"
+        else:
+            sensitive_confidence = "low"
+    else:
+        sensitive_confidence = "low"
+
+    if target_confidence == "low" and target is not None and not requested_target:
+        warnings.append(f"Target column '{target}' was inferred with low confidence.")
+    if prediction_confidence == "low" and pred is not None and not requested_prediction:
+        warnings.append(f"Prediction column '{pred}' was inferred with low confidence.")
+    if sensitive_confidence == "low" and sensitive and not requested_sensitive:
+        warnings.append("Sensitive columns were inferred with low confidence.")
+
     profiling = {k: vars(v) for k, v in profiles.items()}
-    return InferenceResult(target, pred, prob, sensitive, candidates[:6], profiling, warnings)
+    return InferenceResult(
+        target,
+        pred,
+        prob,
+        sensitive,
+        candidates[:6],
+        profiling,
+        warnings,
+        target_confidence,
+        prediction_confidence,
+        sensitive_confidence,
+        _serialize_ranked(target_ranked),
+        _serialize_ranked(prediction_ranked),
+        _serialize_ranked(sensitive_ranked),
+    )

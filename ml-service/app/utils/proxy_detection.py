@@ -28,6 +28,8 @@ def _association_strength(a: pd.Series, b: pd.Series) -> float:
 
 
 def detect_proxy_features(df: pd.DataFrame, sensitive_columns: List[str], exclude: List[str]) -> List[Dict[str, Any]]:
+    if len(df) > 3000:
+        df = df.sample(n=3000, random_state=42)
     findings: List[Dict[str, Any]] = []
     excluded = set(exclude) | set(sensitive_columns)
     for sensitive in sensitive_columns:

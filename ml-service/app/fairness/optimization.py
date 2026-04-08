@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib.util import find_spec
 from itertools import combinations
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -11,16 +12,14 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-try:
+FAIRLEARN_MITIGATION_AVAILABLE = find_spec("fairlearn") is not None
+
+
+def _load_fairlearn_runtime() -> Tuple[Any, Any, Any, Any]:
     from fairlearn.postprocessing import ThresholdOptimizer
     from fairlearn.reductions import DemographicParity, EqualizedOdds, ExponentiatedGradient
-    FAIRLEARN_MITIGATION_AVAILABLE = True
-except Exception:
-    FAIRLEARN_MITIGATION_AVAILABLE = False
-    ThresholdOptimizer = None  # type: ignore
-    DemographicParity = None  # type: ignore
-    EqualizedOdds = None  # type: ignore
-    ExponentiatedGradient = None  # type: ignore
+
+    return ThresholdOptimizer, DemographicParity, EqualizedOdds, ExponentiatedGradient
 
 from app.fairness.metrics import (
     build_intersectional_findings,
@@ -97,9 +96,12 @@ def _fairlearn_candidates(
 ) -> List[Dict[str, Any]]:
     if not FAIRLEARN_MITIGATION_AVAILABLE or not target_column or target_column not in df.columns or not sensitive_columns:
         return []
+    if len(df) > 2000:
+        return []
 
     candidates: List[Dict[str, Any]] = []
     try:
+        ThresholdOptimizer, DemographicParity, EqualizedOdds, ExponentiatedGradient = _load_fairlearn_runtime()
         X = _build_feature_matrix(df, target_column, sensitive_columns, probability_column, prediction_column)
     except Exception:
         return []

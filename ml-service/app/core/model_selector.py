@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib.util import find_spec
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -24,45 +25,35 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-try:
-    from xgboost import XGBClassifier
-    XGBOOST_AVAILABLE = True
-    XGBOOST_IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover
-    XGBOOST_AVAILABLE = False
-    XGBOOST_IMPORT_ERROR = str(exc)
-    XGBClassifier = None  # type: ignore
-
-try:
-    from catboost import CatBoostClassifier
-    CATBOOST_AVAILABLE = True
-    CATBOOST_IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover
-    CATBOOST_AVAILABLE = False
-    CATBOOST_IMPORT_ERROR = str(exc)
-    CatBoostClassifier = None  # type: ignore
-
-try:
-    from lightgbm import LGBMClassifier
-    LIGHTGBM_AVAILABLE = True
-    LIGHTGBM_IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover
-    LIGHTGBM_AVAILABLE = False
-    LIGHTGBM_IMPORT_ERROR = str(exc)
-    LGBMClassifier = None  # type: ignore
-
-try:
-    import optuna
-    OPTUNA_AVAILABLE = True
-except Exception:  # pragma: no cover
-    OPTUNA_AVAILABLE = False
-    optuna = None  # type: ignore
+XGBOOST_AVAILABLE = find_spec("xgboost") is not None
+CATBOOST_AVAILABLE = find_spec("catboost") is not None
+LIGHTGBM_AVAILABLE = find_spec("lightgbm") is not None
+OPTUNA_AVAILABLE = find_spec("optuna") is not None
 
 from app.utils.column_inference import normalize_binary
 
 RANDOM_SEED = 42
 MIN_VALIDATION_ROWS = 40
 MAX_SEARCH_ROWS = 12000
+FAST_EXTERNAL_BOOSTER_ROWS = 2000
+
+
+def _load_xgboost_classifier() -> Any:
+    from xgboost import XGBClassifier
+
+    return XGBClassifier
+
+
+def _load_lightgbm_classifier() -> Any:
+    from lightgbm import LGBMClassifier
+
+    return LGBMClassifier
+
+
+def _load_catboost_classifier() -> Any:
+    from catboost import CatBoostClassifier
+
+    return CatBoostClassifier
 
 
 @dataclass
@@ -197,102 +188,113 @@ def _candidate_models(class_weight_scale: float, n_rows: int) -> List[CandidateS
             ),
             notes="Fast histogram gradient boosting with strong nonlinear capacity.",
         ),
+        CandidateSpec(
+            name="random_forest_balanced",
+            family="bagging",
+            estimator=RandomForestClassifier(
+                n_estimators=120 if n_rows >= 3000 else 160,
+                max_depth=10,
+                min_samples_leaf=4,
+                class_weight="balanced_subsample",
+                random_state=RANDOM_SEED,
+                n_jobs=-1,
+            ),
+            notes="Fast bagged tree model for robust tabular baselines.",
+        ),
     ]
 
     external_boosters: List[CandidateSpec] = []
-    if XGBOOST_AVAILABLE and XGBClassifier is not None:
-        external_boosters.append(
-            CandidateSpec(
-                name="xgboost_tabular",
-                family="boosting",
-                estimator=XGBClassifier(
-                    n_estimators=180 if n_rows >= 5000 else 240,
-                    max_depth=5,
-                    learning_rate=0.05,
-                    subsample=0.85,
-                    colsample_bytree=0.85,
-                    reg_lambda=1.2,
-                    min_child_weight=2,
-                    objective="binary:logistic",
-                    eval_metric="logloss",
-                    scale_pos_weight=max(1.0, class_weight_scale),
-                    random_state=RANDOM_SEED,
-                    n_jobs=4,
-                ),
-                notes="XGBoost gradient boosting candidate tuned for imbalanced binary tabular data.",
-            )
-        )
+    if n_rows <= FAST_EXTERNAL_BOOSTER_ROWS:
+        if XGBOOST_AVAILABLE:
+            try:
+                XGBClassifier = _load_xgboost_classifier()
+                external_boosters.append(
+                    CandidateSpec(
+                        name="xgboost_tabular",
+                        family="boosting",
+                        estimator=XGBClassifier(
+                            n_estimators=120,
+                            max_depth=4,
+                            learning_rate=0.06,
+                            subsample=0.85,
+                            colsample_bytree=0.85,
+                            reg_lambda=1.2,
+                            min_child_weight=2,
+                            objective="binary:logistic",
+                            eval_metric="logloss",
+                            scale_pos_weight=max(1.0, class_weight_scale),
+                            random_state=RANDOM_SEED,
+                            n_jobs=4,
+                        ),
+                        notes="Optional XGBoost candidate enabled only for smaller datasets to keep analysis responsive.",
+                    )
+                )
+            except Exception:
+                pass
 
-    if LIGHTGBM_AVAILABLE and LGBMClassifier is not None:
-        external_boosters.append(
+        if not external_boosters and LIGHTGBM_AVAILABLE:
+            try:
+                LGBMClassifier = _load_lightgbm_classifier()
+                external_boosters.append(
+                    CandidateSpec(
+                        name="lightgbm_tabular",
+                        family="boosting",
+                        estimator=LGBMClassifier(
+                            n_estimators=120,
+                            learning_rate=0.06,
+                            num_leaves=31,
+                            subsample=0.85,
+                            colsample_bytree=0.85,
+                            reg_lambda=1.0,
+                            class_weight="balanced",
+                            random_state=RANDOM_SEED,
+                            verbosity=-1,
+                        ),
+                        notes="Optional LightGBM candidate enabled only for smaller datasets to keep analysis responsive.",
+                    )
+                )
+            except Exception:
+                pass
+
+        if not external_boosters and CATBOOST_AVAILABLE:
+            try:
+                CatBoostClassifier = _load_catboost_classifier()
+                external_boosters.append(
+                    CandidateSpec(
+                        name="catboost_tabular",
+                        family="boosting",
+                        estimator=CatBoostClassifier(
+                            iterations=120,
+                            depth=5,
+                            learning_rate=0.06,
+                            loss_function="Logloss",
+                            eval_metric="AUC",
+                            verbose=False,
+                            random_seed=RANDOM_SEED,
+                        ),
+                        notes="Optional CatBoost candidate enabled only for smaller datasets to keep analysis responsive.",
+                    )
+                )
+            except Exception:
+                pass
+
+    specs.extend(external_boosters[:1])
+
+    if n_rows <= 5000:
+        specs.append(
             CandidateSpec(
-                name="lightgbm_tabular",
-                family="boosting",
-                estimator=LGBMClassifier(
-                    n_estimators=180 if n_rows >= 5000 else 240,
-                    learning_rate=0.05,
-                    num_leaves=31,
-                    subsample=0.85,
-                    colsample_bytree=0.85,
-                    reg_lambda=1.0,
+                name="extra_trees_balanced",
+                family="bagging",
+                estimator=ExtraTreesClassifier(
+                    n_estimators=140,
+                    max_depth=None,
+                    min_samples_leaf=2,
                     class_weight="balanced",
                     random_state=RANDOM_SEED,
-                    verbosity=-1,
+                    n_jobs=-1,
                 ),
-                notes="LightGBM candidate for efficient gradient-boosted decision trees.",
+                notes="Fast extra-trees ensemble for smaller mixed tabular datasets.",
             )
-        )
-
-    if CATBOOST_AVAILABLE and CatBoostClassifier is not None and n_rows <= 15000:
-        external_boosters.append(
-            CandidateSpec(
-                name="catboost_tabular",
-                family="boosting",
-                estimator=CatBoostClassifier(
-                    iterations=160 if n_rows >= 5000 else 220,
-                    depth=6,
-                    learning_rate=0.05,
-                    loss_function="Logloss",
-                    eval_metric="AUC",
-                    verbose=False,
-                    random_seed=RANDOM_SEED,
-                ),
-                notes="CatBoost candidate for robust handling of high-cardinality categorical structure after encoding.",
-            )
-        )
-
-    specs.extend(external_boosters[:2])
-
-    if not external_boosters:
-        specs.extend(
-            [
-                CandidateSpec(
-                    name="random_forest_balanced",
-                    family="bagging",
-                    estimator=RandomForestClassifier(
-                        n_estimators=180 if n_rows >= 5000 else 260,
-                        max_depth=10,
-                        min_samples_leaf=4,
-                        class_weight="balanced_subsample",
-                        random_state=RANDOM_SEED,
-                        n_jobs=-1,
-                    ),
-                    notes="Bagged tree model with balanced subsampling for robust tabular baselines.",
-                ),
-                CandidateSpec(
-                    name="extra_trees_balanced",
-                    family="bagging",
-                    estimator=ExtraTreesClassifier(
-                        n_estimators=180 if n_rows >= 5000 else 260,
-                        max_depth=None,
-                        min_samples_leaf=2,
-                        class_weight="balanced",
-                        random_state=RANDOM_SEED,
-                        n_jobs=-1,
-                    ),
-                    notes="High-variance tree ensemble that often performs well on mixed tabular data.",
-                ),
-            ]
         )
 
     return specs
@@ -411,7 +413,7 @@ def _cross_validated_metrics(
         X = X.iloc[positions]
         y = y.iloc[positions]
         sample_weights = sample_weights[positions]
-    n_splits = 2 if len(X) >= 3000 else 3
+    n_splits = 2
     splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_SEED)
     fold_metrics: List[Dict[str, float]] = []
 
@@ -542,7 +544,7 @@ def train_and_select_model(
     sensitive_train = df.loc[X_train.index, [c for c in sensitive_columns if c in df.columns]].copy()
     sample_weights_train = _sample_weights_for_reweighing(y_train.reset_index(drop=True), sensitive_train.reset_index(drop=True))
 
-    candidate_specs = _candidate_models(class_weight_scale)
+    candidate_specs = _candidate_models(class_weight_scale, len(X))
     if not candidate_specs:
         raise RuntimeError("No trainable model candidates are available in the current environment.")
 
@@ -585,10 +587,14 @@ def train_and_select_model(
     )
     best = ranked[0]
 
-    ensemble_result = _blend_top_models(
-        ranked,
-        X_test=X_test,
-        y_test=y_test,
+    ensemble_result = (
+        _blend_top_models(
+            ranked,
+            X_test=X_test,
+            y_test=y_test,
+        )
+        if len(ranked) >= 2 and len(X) <= 5000
+        else None
     )
 
     final_model_name = best.name

@@ -3,51 +3,58 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { env } from '../config/env.js';
 import { AnalysisRepository } from '../models/analysisRepository.js';
-import { analyzeFile as callAnalyzeFile, mitigationPreview as callMitigationPreview } from './pythonService.js';
+import { analyzeFile as callAnalyzeFile, healthCheckPython, mitigationPreview as callMitigationPreview } from './pythonService.js';
 import { geminiConfigured, generateGeminiNarration } from './geminiService.js';
 import { persistArtifacts } from '../utils/reportArtifacts.js';
 
 const repo = new AnalysisRepository();
 
 export async function createAnalysis({ file, body }) {
-  const sensitiveColumns = normalizeSensitiveColumns(body.sensitiveColumns);
-  const rawResult = await callAnalyzeFile({
-    filePath: file.path,
-    originalName: file.originalname,
-    domain: body.domain,
-    targetColumn: body.targetColumn,
-    predictionColumn: body.predictionColumn,
-    sensitiveColumns,
-    positiveLabel: body.positiveLabel,
-    geminiApiKey: body.geminiApiKey,
-  });
+  try {
+    await healthCheckPython();
 
-  const analysis = {
-    id: uuidv4(),
-    createdAt: new Date().toISOString(),
-    input: {
-      fileName: file.originalname,
-      domain: body.domain || 'auto',
-      targetColumn: body.targetColumn || '',
-      predictionColumn: body.predictionColumn || '',
+    const sensitiveColumns = normalizeSensitiveColumns(body.sensitiveColumns);
+    const rawResult = await callAnalyzeFile({
+      filePath: file.path,
+      originalName: file.originalname,
+      domain: body.domain,
+      targetColumn: body.targetColumn,
+      predictionColumn: body.predictionColumn,
       sensitiveColumns,
-      positiveLabel: body.positiveLabel || '1',
-    },
-    result: rawResult,
-  };
+      positiveLabel: body.positiveLabel,
+      geminiApiKey: body.geminiApiKey,
+    });
 
-  const artifactPaths = persistArtifacts(analysis);
-  analysis.artifactPaths = artifactPaths;
-  analysis.result.artifacts = {
-    correctedCsvUrl: artifactPaths.correctedCsvUrl,
-    reportPdfUrl: artifactPaths.reportPdfUrl,
-    corrected_filename: artifactPaths.correctedFileName,
-  };
-  await enrichGeminiNarration(analysis, { generate: Boolean(body.geminiApiKey) });
+    const analysis = {
+      id: uuidv4(),
+      createdAt: new Date().toISOString(),
+      input: {
+        fileName: file.originalname,
+        domain: body.domain || 'auto',
+        targetColumn: body.targetColumn || '',
+        predictionColumn: body.predictionColumn || '',
+        sensitiveColumns,
+        positiveLabel: body.positiveLabel || '1',
+      },
+      result: rawResult,
+    };
 
-  await repo.save(analysis);
-  fs.unlinkSync(file.path);
-  return analysis;
+    const artifactPaths = persistArtifacts(analysis);
+    analysis.artifactPaths = artifactPaths;
+    analysis.result.artifacts = {
+      correctedCsvUrl: artifactPaths.correctedCsvUrl,
+      reportPdfUrl: artifactPaths.reportPdfUrl,
+      corrected_filename: artifactPaths.correctedFileName,
+    };
+    await enrichGeminiNarration(analysis, { generate: Boolean(body.geminiApiKey) });
+
+    await repo.save(analysis);
+    return analysis;
+  } finally {
+    if (file?.path && fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path);
+    }
+  }
 }
 
 export async function createMitigationPreview({ analysisId, strategy }) {

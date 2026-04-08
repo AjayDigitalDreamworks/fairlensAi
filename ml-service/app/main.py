@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import io
 import json
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.core import SERVICE_VERSION, run_audit
+SERVICE_VERSION = "3.0.0"
 
 app = FastAPI(title="FairAI ML Service", version=SERVICE_VERSION)
 
@@ -20,9 +21,16 @@ class AnalyzeResponse(BaseModel):
 class MitigationPreviewRequest(BaseModel):
     domain: Optional[str] = "auto"
     strategy: str = "reweighing"
-    fairness_summary: Dict[str, Any] = {}
-    sensitive_findings: List[Dict[str, Any]] = []
-    recommendations: List[Dict[str, Any]] = []
+    fairness_summary: Dict[str, Any] = Field(default_factory=dict)
+    sensitive_findings: List[Dict[str, Any]] = Field(default_factory=list)
+    recommendations: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+@lru_cache(maxsize=1)
+def _load_audit_runtime():
+    from app.core import run_audit
+
+    return run_audit
 
 
 def _load_dataframe(filename: str, content: bytes) -> pd.DataFrame:
@@ -39,9 +47,26 @@ def _load_dataframe(filename: str, content: bytes) -> pd.DataFrame:
     raise HTTPException(status_code=400, detail="Unsupported file format.")
 
 
+@app.get("/")
+def root() -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "service": "fairai-ml-service",
+        "version": SERVICE_VERSION,
+        "docs": "/docs",
+        "health": "/health",
+        "status": "online",
+    }
+
+
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    return {"ok": True, "service": "fairai-ml-service", "version": SERVICE_VERSION}
+    return {
+        "ok": True,
+        "service": "fairai-ml-service",
+        "version": SERVICE_VERSION,
+        "runtime": "lazy",
+    }
 
 
 @app.post("/analyze/file")
@@ -64,6 +89,7 @@ async def analyze_file(
     if df.empty:
         raise HTTPException(status_code=400, detail="Uploaded dataset is empty.")
     try:
+        run_audit = _load_audit_runtime()
         return run_audit(
             df=df,
             source_name=file.filename or "uploaded_dataset",

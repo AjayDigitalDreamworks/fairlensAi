@@ -33,6 +33,18 @@ def test_fairness_metrics_edge_case_runs():
     assert out["confidence"] in {"low", "medium", "high"}
 
 
+def test_target_inference_prefers_hired_over_referral():
+    df = pd.DataFrame({
+        "Referral": [0, 1, 0, 1, 1, 0],
+        "Hired": [0, 1, 0, 1, 0, 1],
+        "Gender": ["F", "M", "F", "M", "F", "M"],
+        "Experience_Years": [1, 3, 2, 5, 4, 6],
+    })
+    result = infer_columns(df)
+    assert result.target_column == "Hired"
+    assert result.target_confidence in {"medium", "high"}
+
+
 def test_end_to_end_audit_with_training_path():
     rows = 80
     df = pd.DataFrame({
@@ -47,3 +59,15 @@ def test_end_to_end_audit_with_training_path():
     assert "fairness_summary" in result
     assert "mitigation_summary" in result
     assert "corrected_csv" in result
+
+
+def test_ambiguous_dataset_returns_needs_review_mode():
+    df = pd.DataFrame({
+        "value_a": [1, 0, 1, 0, 1, 0],
+        "value_b": [0, 1, 0, 1, 0, 1],
+        "code": ["x", "y", "x", "y", "z", "z"],
+        "metric": [10, 12, 9, 11, 8, 13],
+    })
+    result = run_audit(df, source_name="ambiguous.csv")
+    assert result["metadata"]["audit_mode"] == "needs_review"
+    assert result["recommendation"] == "schema review required"
