@@ -4,10 +4,11 @@ A full-stack fairness auditing platform built from your uploaded frontend and in
 - React + Vite frontend
 - Express backend
 - Python FastAPI ML service
-- XGBoost surrogate modeling
-- TreeSHAP model explainability for XGBoost analysis paths
+- advanced tabular model selection with XGBoost, CatBoost, LightGBM, Random Forest, Extra Trees, HistGradientBoosting, and Logistic Regression
+- SHAP explainability for model-based audit paths
 - Apache Spark assisted large-dataset sampling
-- Training-time reweighing for supervised fairness repair
+- Fairlearn-backed mitigation candidates for threshold optimization and constrained reductions
+- fast custom reweighing for training-time fairness repair
 - Intersectional fairness analysis across combined sensitive groups
 - detection layer
 - explanation layer
@@ -21,7 +22,7 @@ A full-stack fairness auditing platform built from your uploaded frontend and in
 - `frontend/` React + Vite app
 - `backend/` Express API and persistence layer
 - `ml-service/` FastAPI model and fairness analysis engine
-  Runs the fairness pipeline with XGBoost-based supervised surrogate predictions and optional Spark acceleration for large sampled workloads.
+  Runs a direct fairness audit flow with surrogate-model prediction, explainability, proxy-risk detection, mitigation analysis, and report generation without requiring a separate pipeline setup.
 
 pip install fairlearn
 pip install tensorflow
@@ -65,8 +66,8 @@ ML service: http://localhost:8000/health
 1. Frontend uploads file to Express backend.
 2. Express forwards the file and selected columns to FastAPI.
 3. FastAPI auto-detects domain, target, prediction, and sensitive columns when possible.
-4. FastAPI computes fairness metrics, explanations, proxy-risk causes, corrected dataset output, and analysis logs.
-   When an XGBoost analysis path is available, the explainability payload now includes TreeSHAP global + local attributions.
+4. FastAPI automatically detects target, prediction, and sensitive columns. It then computes fairness metrics, generates SHAP explanations, applies mitigation strategies, and creates a full audit report in one direct audit response.
+   The ML service can use XGBoost, CatBoost, LightGBM, and Fairlearn-backed workflows when those libraries are available in the runtime.
    If you provide a Gemini API key during upload, the ml-service also adds a plain-language Gemini narrative on top of the SHAP output.
 5. Express stores the analysis, persists downloadable artifacts, and returns it to the frontend.
 6. Frontend keeps the latest analysis and local history for dashboard/report pages.

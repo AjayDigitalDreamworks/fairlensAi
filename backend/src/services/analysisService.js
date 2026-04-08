@@ -43,7 +43,7 @@ export async function createAnalysis({ file, body }) {
     reportPdfUrl: artifactPaths.reportPdfUrl,
     corrected_filename: artifactPaths.correctedFileName,
   };
-  await enrichGeminiNarration(analysis);
+  await enrichGeminiNarration(analysis, { generate: Boolean(body.geminiApiKey) });
 
   await repo.save(analysis);
   fs.unlinkSync(file.path);
@@ -78,7 +78,7 @@ export async function createMitigationPreview({ analysisId, strategy }) {
     reportPdfUrl: updated.artifactPaths.reportPdfUrl,
     corrected_filename: updated.artifactPaths.correctedFileName,
   };
-  await enrichGeminiNarration(updated);
+  await enrichGeminiNarration(updated, { generate: false });
   await repo.save(updated);
   return updated;
 }
@@ -195,8 +195,8 @@ function removeArtifactsForAnalysis(id) {
   }
 }
 
-async function enrichGeminiNarration(analysis) {
-  if (!geminiConfigured()) {
+async function enrichGeminiNarration(analysis, options = { generate: false }) {
+  if (!geminiConfigured() || !options.generate) {
     analysis.result.explanation = {
       ...(analysis.result.explanation || {}),
       gemini_interpretation: {
@@ -204,8 +204,10 @@ async function enrichGeminiNarration(analysis) {
         model: env.geminiModel,
         generatedAt: null,
         text: '',
-        status: 'not_configured',
-        note: 'Set GEMINI_API_KEY on the backend to enable natural-language explainability.',
+        status: geminiConfigured() ? 'available_on_demand' : 'not_configured',
+        note: geminiConfigured()
+          ? 'Gemini narration is available on demand from the explainability action.'
+          : 'Set GEMINI_API_KEY on the backend to enable natural-language explainability.',
       },
     };
     return;

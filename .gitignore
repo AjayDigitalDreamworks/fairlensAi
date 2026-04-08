@@ -124,3 +124,8 @@ docker-compose.override.yml
 
 sample_data
 .env.example
+ml-service.zip
+datasets
+REBUILD_PLAN.md
+requirements.txt
+generate_large_test_dataset.ps1

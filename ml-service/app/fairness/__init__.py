@@ -1,1 +1,2 @@
-"""Fairness analysis package — metrics, optimization, and intersectional analysis."""
+from app.fairness.metrics import compute_structured_fairness_metrics, compute_overall_fairness_summary
+from app.fairness.optimization import choose_mitigation
