@@ -2,27 +2,19 @@
 
 import Layout from "@/components/Layout";
 import { Button } from "@/components/ui/button";
-import { generateGeminiExplanation, listAnalyses, getAnalysis } from "@/lib/api";
+import { generateGeminiExplanation, getAnalysis, listAnalyses } from "@/lib/api";
 import { formatMetric } from "@/lib/analysis-insights";
 import { loadAnalysisHistory, loadLatestAnalysis, saveAnalysis } from "@/lib/analysis-store";
 import type { AnalysisPayload } from "@/types/analysis";
-import {
-  BarChart3,
-  BrainCircuit,
-  CheckCircle2,
-  Loader2,
-  MessageSquareText,
-  Sparkles,
-  Target,
-} from "lucide-react";
-import { type ComponentType, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { BrainCircuit, Loader2, MessageSquareText, Target } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export default function ExplainabilityPage() {
   const [analyses, setAnalyses] = useState<AnalysisPayload[]>([]);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectionLoading, setSelectionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [fullAnalysis, setFullAnalysis] = useState<AnalysisPayload | null>(null);
@@ -43,7 +35,6 @@ export default function ExplainabilityPage() {
         setAnalyses(next);
         setAnalysisId(preferred?.id ?? null);
         setError(items.length ? null : cachedHistory.length ? "Live explainability feed is empty, showing cached analysis." : null);
-        if (preferred) saveAnalysis(preferred);
       } catch {
         if (!mounted) return;
 
@@ -77,30 +68,32 @@ export default function ExplainabilityPage() {
   }, [analysisId, analyses]);
 
   useEffect(() => {
-    if (analysisId) {
-      getAnalysis(analysisId).then(setFullAnalysis).catch(console.error);
-    }
+    if (!analysisId) return;
+
+    setSelectionLoading(true);
+    getAnalysis(analysisId)
+      .then((item) => {
+        setFullAnalysis(item);
+        saveAnalysis(item);
+      })
+      .catch(() => {
+        setFullAnalysis(null);
+        setError((current) => current ?? "Selected analysis details could not be loaded.");
+      })
+      .finally(() => setSelectionLoading(false));
   }, [analysisId]);
 
-  const analysis = useMemo(
-    () => (fullAnalysis?.id === analysisId ? fullAnalysis : analyses.find((item) => item.id === analysisId) ?? analyses[0] ?? null),
-    [analysisId, analyses, fullAnalysis],
-  );
-
+  const analysis = useMemo(() => (fullAnalysis?.id === analysisId ? fullAnalysis : null), [analysisId, fullAnalysis]);
   const explainability = analysis?.result?.explainability;
   const geminiInterpretation = analysis?.result?.explanation?.gemini_interpretation;
-  const topFeatures = explainability?.top_features ?? [];
-  const shapSummary = explainability?.shap_style_summary ?? [];
-  const localExamples = explainability?.lime_style_example ?? [];
-
-  const chartData = useMemo(
-    () =>
-      topFeatures.map((item) => ({
-        feature: item.feature,
-        importance: Number((item.score ?? item.weight ?? 0).toFixed(4)),
-      })),
-    [topFeatures],
-  );
+  const fallback = useMemo(() => buildFallbackExplainability(analysis), [analysis]);
+  const topFeatures = explainability?.top_features?.length ? explainability.top_features : fallback.topFeatures;
+  const impactFeed = explainability?.shap_style_summary?.length ? explainability.shap_style_summary : fallback.impactFeed;
+  const localExamples = explainability?.lime_style_example?.length ? explainability.lime_style_example : fallback.localExamples;
+  const chartData = topFeatures.map((item) => ({
+    feature: item.feature,
+    importance: Number((item.score ?? item.weight ?? 0).toFixed(4)),
+  }));
 
   if (loading) {
     return (
@@ -114,17 +107,15 @@ export default function ExplainabilityPage() {
     <Layout>
       <div className="space-y-8 pb-12">
         <section className="card-glow overflow-hidden p-8">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-            <div className="space-y-3">
-              <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
-                <BrainCircuit className="h-3.5 w-3.5" />
-                Model Explainability Engine
-              </div>
-              <h1 className="text-3xl font-bold text-white">Model Interpretability</h1>
-              <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
-                Understand the key factors driving your model's decisions. Our interpretability engine identifies the most influential features, helping you detect hidden bias and improve model transparency through both mathematical attribution and natural language summaries.
-              </p>
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
+              <BrainCircuit className="h-3.5 w-3.5" />
+              Model Explainability Engine
             </div>
+            <h1 className="text-3xl font-bold text-white">Model Interpretability</h1>
+            <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
+              This view now falls back to fairness findings, proxy-risk signals, and root-cause analysis when direct SHAP-style model drivers are unavailable.
+            </p>
           </div>
         </section>
 
@@ -137,11 +128,7 @@ export default function ExplainabilityPage() {
               </div>
               <select
                 value={analysisId ?? ""}
-                onChange={(event) => {
-                  setAnalysisId(event.target.value);
-                  const selected = analyses.find((item) => item.id === event.target.value);
-                  if (selected) saveAnalysis(selected);
-                }}
+                onChange={(event) => setAnalysisId(event.target.value)}
                 className="min-w-[260px] border border-white/10 bg-black/30 px-4 py-3 text-sm text-white"
               >
                 {analyses.map((item) => (
@@ -152,8 +139,9 @@ export default function ExplainabilityPage() {
               </select>
             </div>
 
-            {error && <Notice tone="warning" message={error} />}
-            {!analysis && !error && <Notice tone="warning" message="No explainability payload is available yet." />}
+            {error && <Notice message={error} />}
+            {analysisId && selectionLoading && <Notice message="Loading the full explainability payload for this run..." />}
+            {!analysis && !error && <Notice message="No explainability payload is available yet." />}
 
             {analysis && (
               <div className="space-y-4">
@@ -164,10 +152,12 @@ export default function ExplainabilityPage() {
                     <SummaryLine label="Domain" value={analysis.result.metadata.domain} />
                     <SummaryLine label="Prediction source" value={analysis.result.metadata.prediction_auto_generated ? "Internal Audit Engine" : "Uploaded Prediction data"} />
                     <SummaryLine label="Fairness score" value={`${formatMetric(analysis.result.fairness_summary.overall_fairness_score)}%`} />
+                    <SummaryLine label="Explainability status" value={explainability?.status || fallback.status} />
+                    <SummaryLine label="Signal source" value={analysis.result.metadata.explainability_model_source || fallback.sourceLabel} />
                   </div>
                 </div>
 
-
+                <MethodList title="Signals available" items={explainability?.methods_available?.length ? explainability.methods_available : fallback.methodBadges} />
 
                 <div className="flex flex-wrap gap-3">
                   <Button
@@ -178,7 +168,7 @@ export default function ExplainabilityPage() {
                       try {
                         const updated = await generateGeminiExplanation(analysis.id);
                         setAnalyses((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
-                        setAnalysisId(updated.id);
+                        setFullAnalysis(updated);
                         saveAnalysis(updated);
                       } catch (generationError) {
                         setError(generationError instanceof Error ? generationError.message : "Gemini explanation failed.");
@@ -192,42 +182,29 @@ export default function ExplainabilityPage() {
                     {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageSquareText className="mr-2 h-4 w-4" />}
                     {generating ? "Generating Narrative..." : "Generate Narrative interpretation"}
                   </Button>
-                  <div className="inline-flex items-center border border-white/10 bg-black/20 px-4 py-3 text-xs uppercase tracking-[0.25em] text-muted-foreground">
-                    Backend key required
-                  </div>
                 </div>
               </div>
             )}
           </div>
 
           <div className="card-glow p-6">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Global attribution</p>
-                <h2 className="mt-2 text-xl font-semibold text-white">Top feature drivers</h2>
-              </div>
+            <div className="mb-6">
+              <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Global attribution</p>
+              <h2 className="mt-2 text-xl font-semibold text-white">Top feature drivers</h2>
             </div>
             <div className="h-[360px]">
               {chartData.length ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 40 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                    <XAxis
-                      dataKey="feature"
-                      angle={-18}
-                      textAnchor="end"
-                      height={80}
-                      tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
+                    <XAxis dataKey="feature" angle={-18} textAnchor="end" height={80} tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }} tickLine={false} axisLine={false} />
                     <YAxis tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }} tickLine={false} axisLine={false} />
                     <Tooltip content={<ExplainabilityTooltip />} />
                     <Bar dataKey="importance" fill="var(--chart-primary)" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <EmptyState message="This analysis does not yet expose feature attribution data. Rerun the audit to see the drivers chart update here." />
+                <EmptyState message={explainability?.note || fallback.note} />
               )}
             </div>
           </div>
@@ -239,9 +216,9 @@ export default function ExplainabilityPage() {
               <Target className="h-5 w-5 text-emerald-400" />
               <h2 className="text-xl font-semibold text-white">Model impact feed</h2>
             </div>
-            {shapSummary.length ? (
+            {impactFeed.length ? (
               <div className="space-y-3">
-                {shapSummary.map((item) => (
+                {impactFeed.map((item) => (
                   <ExplainabilityRow
                     key={`${item.feature}-${item.direction}`}
                     title={item.feature}
@@ -252,7 +229,7 @@ export default function ExplainabilityPage() {
                 ))}
               </div>
             ) : (
-              <EmptyState message={explainability?.note ?? "No model-based summary is available for this run."} />
+              <EmptyState message={explainability?.note || fallback.note} />
             )}
           </div>
 
@@ -262,27 +239,15 @@ export default function ExplainabilityPage() {
               <h2 className="text-xl font-semibold text-white">Audit narration</h2>
             </div>
             <div className="space-y-4">
-              <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
-                <p className="text-sm leading-7 text-muted-foreground">
-                  Narrative interpretations provide a supplemental layer to help translate technical model attributions into plain language for compliance reports.
-                </p>
-              </div>
-
               {geminiInterpretation?.text ? (
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narrator output</p>
                   <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{geminiInterpretation.text}</div>
-                  <p className="mt-4 text-[11px] text-muted-foreground/80">
-                    Model: {geminiInterpretation.model || "unknown"}
-                    {geminiInterpretation.generatedAt ? ` | ${new Date(geminiInterpretation.generatedAt).toLocaleString()}` : ""}
-                  </p>
                 </div>
               ) : (
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narrator status</p>
-                  <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                    {geminiInterpretation?.note || "No Narrator interpretation has been generated for this analysis yet."}
-                  </p>
+                  <p className="mt-3 text-sm leading-7 text-muted-foreground">{geminiInterpretation?.note || "No Narrator interpretation has been generated for this analysis yet."}</p>
                 </div>
               )}
 
@@ -297,46 +262,100 @@ export default function ExplainabilityPage() {
                   />
                 ))
               ) : (
-                <EmptyState message="Local SHAP explanations will appear here once available. These can be used to generate natural-language audit summaries." />
+                <EmptyState message="This run did not return local SHAP samples, so the page is showing the strongest available audit details instead." />
               )}
-
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narrative Logic</p>
-                <pre className="mt-3 overflow-x-auto whitespace-pre-wrap font-mono text-xs leading-6 text-muted-foreground">
-{`Explain in simple terms:
-- income has high positive impact on approval
-- age has negative impact
-- keep the explanation grounded in the SHAP numbers above`}
-                </pre>
-              </div>
             </div>
           </div>
         </section>
-
-
       </div>
     </Layout>
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon: ComponentType<{ className?: string }>;
-}) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-muted-foreground">{label}</p>
-        <Icon className="h-4 w-4 text-emerald-400" />
-      </div>
-      <p className="mt-3 text-sm font-semibold text-white">{value}</p>
-    </div>
-  );
+function buildFallbackExplainability(analysis: AnalysisPayload | null) {
+  if (!analysis) {
+    return {
+      topFeatures: [],
+      impactFeed: [],
+      localExamples: [],
+      methodBadges: [],
+      status: "not_loaded",
+      note: "",
+      sourceLabel: "Derived audit signals",
+    };
+  }
+
+  const severityWeight: Record<string, number> = { high: 1, medium: 0.7, low: 0.4 };
+  const scoreMap = new Map<string, { score: number; reason: string; direction: string }>();
+
+  (analysis.result.root_causes ?? []).forEach((cause) => {
+    const feature = cause.feature || cause.sensitive_column;
+    if (!feature) return;
+    const current = scoreMap.get(feature) ?? { score: 0, reason: cause.details, direction: cause.severity || "review" };
+    scoreMap.set(feature, {
+      score: current.score + (severityWeight[cause.severity?.toLowerCase() || "medium"] ?? 0.5),
+      reason: cause.details || current.reason,
+      direction: cause.severity || current.direction,
+    });
+  });
+
+  (analysis.result.sensitive_findings ?? []).forEach((finding) => {
+    const feature = finding.sensitive_column;
+    const current = scoreMap.get(feature) ?? { score: 0, reason: finding.notes?.[0] || "", direction: finding.risk_level };
+    scoreMap.set(feature, {
+      score: current.score + Math.max(0.2, (100 - finding.fairness_score) / 100),
+      reason: finding.notes?.[0] || current.reason || `${feature} has a measurable fairness gap.`,
+      direction: finding.risk_level || current.direction,
+    });
+  });
+
+  (analysis.result.recommendations ?? []).forEach((item) => {
+    const feature = item.title.replace(/^Inspect proxy feature\s+/i, "").replace(/^Review\s+/i, "").trim();
+    if (!feature || feature === item.title) return;
+    const current = scoreMap.get(feature) ?? { score: 0, reason: item.description, direction: item.priority };
+    scoreMap.set(feature, {
+      score: current.score + (item.priority === "high" ? 0.8 : 0.5),
+      reason: item.description || current.reason,
+      direction: item.priority || current.direction,
+    });
+  });
+
+  const topFeatures = Array.from(scoreMap.entries())
+    .map(([feature, value]) => ({
+      feature,
+      score: Number(value.score.toFixed(4)),
+      weight: Number(Math.min(1, value.score / 3).toFixed(4)),
+      direction: value.direction,
+      reason: value.reason,
+    }))
+    .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
+    .slice(0, 8);
+
+  return {
+    topFeatures,
+    impactFeed: topFeatures.map((item) => ({
+      feature: item.feature,
+      direction: item.direction || "review",
+      impact: item.score ?? item.weight ?? 0,
+      summary: item.reason || `${item.feature} was highlighted by the audit fallback logic.`,
+    })),
+    localExamples: (analysis.result.sensitive_findings ?? [])
+      .slice()
+      .sort((left, right) => left.fairness_score - right.fairness_score)
+      .slice(0, 4)
+      .map((finding) => ({
+        feature: finding.sensitive_column,
+        direction: finding.risk_level,
+        impact: Number(((100 - finding.fairness_score) / 100).toFixed(4)),
+        summary: finding.notes?.join(" ") || `${finding.sensitive_column} requires review.`,
+      })),
+    methodBadges: ["audit fallback", "root causes", "fairness findings"],
+    status: topFeatures.length ? "fallback_ready" : "limited",
+    note: topFeatures.length
+      ? "Model-level explainability was unavailable for this run, so the strongest audit findings are being used as fallback drivers."
+      : "No detailed explainability signals were available for this run.",
+    sourceLabel: "Derived audit signals",
+  };
 }
 
 function SummaryLine({ label, value }: { label: string; value: string }) {
@@ -375,19 +394,14 @@ function ExplainabilityRow({
   );
 }
 
-function MethodList({ title, items, accent }: { title: string; items: string[]; accent: "emerald" | "amber" }) {
-  const palette =
-    accent === "emerald"
-      ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-300"
-      : "border-amber-500/20 bg-amber-500/5 text-amber-300";
-
+function MethodList({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-4">
       <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-muted-foreground">{title}</p>
       <div className="mt-4 flex flex-wrap gap-2">
         {items.length ? (
           items.map((item) => (
-            <span key={item} className={`border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.2em] ${palette}`}>
+            <span key={item} className="border border-emerald-500/20 bg-emerald-500/5 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-300">
               {item}
             </span>
           ))
@@ -399,12 +413,8 @@ function MethodList({ title, items, accent }: { title: string; items: string[]; 
   );
 }
 
-function Notice({ tone, message }: { tone: "warning"; message: string }) {
-  return (
-    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm leading-6 text-amber-200">
-      {message}
-    </div>
-  );
+function Notice({ message }: { message: string }) {
+  return <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm leading-6 text-amber-200">{message}</div>;
 }
 
 function EmptyState({ message }: { message: string }) {
@@ -422,9 +432,7 @@ function ExplainabilityTooltip({ active, payload }: any) {
   return (
     <div className="rounded-lg border border-white/10 bg-card/90 p-3 shadow-xl shadow-black/50 backdrop-blur-md">
       <p className="text-sm font-semibold text-white">{point.payload.feature}</p>
-      <p className="mt-1 text-xs font-mono uppercase tracking-[0.2em] text-emerald-300">
-        mean |SHAP| {formatMetric(point.value, 4)}
-      </p>
+      <p className="mt-1 text-xs font-mono uppercase tracking-[0.2em] text-emerald-300">impact {formatMetric(point.value, 4)}</p>
     </div>
   );
 }
