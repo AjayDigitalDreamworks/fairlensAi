@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from app.core.model_selector import (
     CATBOOST_AVAILABLE,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from importlib.util import find_spec
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -24,6 +25,8 @@ from sklearn.metrics import (
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+logger = logging.getLogger(__name__)
 
 XGBOOST_AVAILABLE = find_spec("xgboost") is not None
 CATBOOST_AVAILABLE = find_spec("catboost") is not None
@@ -153,11 +156,14 @@ def _feature_screening(X: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     if working.empty:
         raise ValueError("All candidate feature columns were filtered out during feature screening.")
 
-    return working, {
+    result = {
         "input_feature_count": int(X.shape[1]),
         "retained_feature_count": int(working.shape[1]),
         "dropped_columns": dropped,
     }
+    logger.info(f"[FEATURE_SCREENING] Input: {result['input_feature_count']} cols → Retained: {result['retained_feature_count']} cols")
+    logger.debug(f"[FEATURE_SCREENING] Dropped columns: {dropped}")
+    return working, result
 
 
 def _candidate_models(class_weight_scale: float, n_rows: int) -> List[CandidateSpec]:
@@ -509,7 +515,11 @@ def train_and_select_model(
     sensitive_columns: List[str],
     positive_label: Any = 1,
 ) -> Dict[str, Any]:
+    logger.info(f"[TRAIN_START] Dataset size: {len(df)} rows, {len(df.columns)} cols | Target: {target_column} | Sensitive: {sensitive_columns}")
+    
     y = normalize_binary(df[target_column], positive_label)
+    logger.info(f"[TARGET_DIST] Positive: {(y == 1).sum()} ({(y == 1).mean()*100:.1f}%) | Negative: {(y == 0).sum()} ({(y == 0).mean()*100:.1f}%)")
+    
     feature_df = df.drop(columns=[target_column], errors="ignore").copy()
     protected = set(sensitive_columns) | {"corrected_prediction", "corrected_probability"}
     X_raw = feature_df[[c for c in feature_df.columns if c not in protected]].copy()
@@ -528,6 +538,8 @@ def train_and_select_model(
         stratify=y,
         random_state=RANDOM_SEED,
     )
+    logger.info(f"[SPLIT_1] Train+Val: {len(X_train_val)} | Test: {len(X_test)} (20%)")
+    
     validation_size = max(MIN_VALIDATION_ROWS, int(round(len(X_train_val) * 0.18)))
     validation_ratio = min(0.30, max(validation_size / max(len(X_train_val), 1), 0.12))
     X_train, X_val, y_train, y_val = train_test_split(
@@ -537,11 +549,20 @@ def train_and_select_model(
         stratify=y_train_val,
         random_state=RANDOM_SEED,
     )
+    logger.info(f"[SPLIT_2] Train: {len(X_train)} | Val: {len(X_val)} ({validation_ratio*100:.1f}%) | Validation size calc: {validation_size}")
 
     preprocessor, categorical_columns, numeric_columns = _build_preprocessor(X)
+    logger.info(f"[PREPROCESSOR] Numeric: {len(numeric_columns)} | Categorical: {len(categorical_columns)}")
+    
     pos_rate = float(y_train.mean())
     class_weight_scale = (1.0 - pos_rate) / max(pos_rate, 1e-6)
+    
     sensitive_train = df.loc[X_train.index, [c for c in sensitive_columns if c in df.columns]].copy()
+    logger.info(f"[SENSITIVE_COLS] Used columns: {[c for c in sensitive_columns if c in df.columns]}")
+    for col in sensitive_columns:
+        if col in sensitive_train.columns:
+            unique_vals = sensitive_train[col].nunique()
+            logger.info(f"[SENSITIVE_DETAIL] {col}: {unique_vals} unique values")
     sample_weights_train = _sample_weights_for_reweighing(y_train.reset_index(drop=True), sensitive_train.reset_index(drop=True))
 
     candidate_specs = _candidate_models(class_weight_scale, len(X))

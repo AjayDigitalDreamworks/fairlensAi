@@ -77,9 +77,30 @@ export default function ExplainabilityPage() {
   }, [analysisId, analyses]);
 
   useEffect(() => {
-    if (analysisId) {
-      getAnalysis(analysisId).then(setFullAnalysis).catch(console.error);
+    let active = true;
+
+    if (!analysisId) {
+      setFullAnalysis(null);
+      return () => {
+        active = false;
+      };
     }
+
+    getAnalysis(analysisId)
+      .then((payload) => {
+        if (active) {
+          setFullAnalysis(payload);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setFullAnalysis(null);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [analysisId]);
 
   const analysis = useMemo(
@@ -89,6 +110,7 @@ export default function ExplainabilityPage() {
 
   const explainability = analysis?.result?.explainability;
   const geminiInterpretation = analysis?.result?.explanation?.gemini_interpretation;
+  const narrationStatus = geminiInterpretation?.status ?? "idle";
   const topFeatures = explainability?.top_features ?? [];
   const shapSummary = explainability?.shap_style_summary ?? [];
   const localExamples = explainability?.lime_style_example ?? [];
@@ -178,6 +200,7 @@ export default function ExplainabilityPage() {
                       try {
                         const updated = await generateGeminiExplanation(analysis.id);
                         setAnalyses((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
+                        setFullAnalysis(updated);
                         setAnalysisId(updated.id);
                         saveAnalysis(updated);
                       } catch (generationError) {
@@ -190,12 +213,22 @@ export default function ExplainabilityPage() {
                     className="bg-emerald-500 font-semibold text-black hover:bg-emerald-400"
                   >
                     {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageSquareText className="mr-2 h-4 w-4" />}
-                    {generating ? "Generating Narrative..." : "Generate Narrative interpretation"}
+                    {generating
+                      ? "Generating Narrative..."
+                      : narrationStatus === "generated"
+                        ? "Regenerate Narrative interpretation"
+                        : narrationStatus === "failed"
+                          ? "Retry Narrative interpretation"
+                          : "Generate Narrative interpretation"}
                   </Button>
                   <div className="inline-flex items-center border border-white/10 bg-black/20 px-4 py-3 text-xs uppercase tracking-[0.25em] text-muted-foreground">
-                    Backend key required
+                    {getNarrationBadgeLabel(narrationStatus)}
                   </div>
                 </div>
+
+                {geminiInterpretation?.note && narrationStatus !== "generated" && (
+                  <p className="text-sm text-muted-foreground">{geminiInterpretation.note}</p>
+                )}
               </div>
             )}
           </div>
@@ -427,4 +460,12 @@ function ExplainabilityTooltip({ active, payload }: any) {
       </p>
     </div>
   );
+}
+
+function getNarrationBadgeLabel(status: string) {
+  if (status === "generated") return "Narration ready";
+  if (status === "failed") return "Retry available";
+  if (status === "not_configured") return "Backend key missing";
+  if (status === "available_on_demand") return "On demand";
+  return "Narration standby";
 }

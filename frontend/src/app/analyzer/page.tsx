@@ -43,6 +43,8 @@ const liveStages = [
   "Generating corrected output and report",
 ];
 
+const ARCHIVE_PREVIEW_LIMIT = 4;
+
 export default function DatasetAnalyzer() {
   const [file, setFile] = useState<File | null>(null);
   const [domain, setDomain] = useState("auto");
@@ -52,6 +54,7 @@ export default function DatasetAnalyzer() {
   const [analysis, setAnalysis] = useState<AnalysisPayload | null>(null);
   const [history, setHistory] = useState<AnalysisPayload[]>([]);
   const [liveIndex, setLiveIndex] = useState(0);
+  const [showFullArchive, setShowFullArchive] = useState(false);
 
   useEffect(() => {
     async function hydrateHistory() {
@@ -99,6 +102,14 @@ export default function DatasetAnalyzer() {
   const correctedScore = analysis ? getCorrectedScore(analysis) : null;
   const targetScore = analysis?.result?.fairness_summary?.fairness_target ?? 95;
   const targetDelta = typeof correctedScore === "number" ? Math.max(0, targetScore - correctedScore) : null;
+  const visibleHistory = useMemo(
+    () =>
+      showFullArchive
+        ? history
+        : history.filter((item, index) => index < ARCHIVE_PREVIEW_LIMIT || item.id === analysis?.id),
+    [analysis?.id, history, showFullArchive],
+  );
+  const hiddenHistoryCount = Math.max(0, history.length - visibleHistory.length);
 
   const worstFinding = useMemo(() => {
     if (!analysis) return null;
@@ -417,41 +428,66 @@ export default function DatasetAnalyzer() {
             </div>
 
             <section className="command-panel p-8">
-              <div className="mb-5 flex items-center gap-3">
-                <History className="h-5 w-5 text-emerald-400" />
-                <h2 className="text-xl font-semibold text-white">Recent Analysis Archive</h2>
+              <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <History className="h-5 w-5 text-emerald-400" />
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">Recent Analysis Archive</h2>
+                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      Showing {visibleHistory.length} of {history.length} saved audits
+                    </p>
+                  </div>
+                </div>
+                <div className="inline-flex items-center border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
+                  {history.length} total
+                </div>
               </div>
 
               <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
                 <div className="space-y-3">
-                  {history.map((item) => {
-                    const itemCorrected = getCorrectedScore(item) ?? item.result?.fairness_summary?.overall_fairness_score ?? 0;
+                  <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-2">
+                    {visibleHistory.map((item) => {
+                      const itemCorrected = getCorrectedScore(item) ?? item.result?.fairness_summary?.overall_fairness_score ?? 0;
 
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => inspectAnalysis(item)}
-                        className={`w-full border p-4 text-left transition ${
-                          analysis && item.id === analysis.id
-                            ? "border-emerald-500/40 bg-emerald-500/10"
-                            : "border-white/10 bg-black/20 hover:border-emerald-500/30 hover:bg-white/5"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className="font-medium text-white">{item.input?.fileName ?? "Unnamed Dataset"}</p>
-                            <p className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                              {item.result?.metadata?.domain ?? "unknown"} | {formatRelativeTime(item.createdAt)}
-                            </p>
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => inspectAnalysis(item)}
+                          className={`w-full border p-4 text-left transition ${
+                            analysis && item.id === analysis.id
+                              ? "border-emerald-500/40 bg-emerald-500/10"
+                              : "border-white/10 bg-black/20 hover:border-emerald-500/30 hover:bg-white/5"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="font-medium text-white">{item.input?.fileName ?? "Unnamed Dataset"}</p>
+                              <p className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                {item.result?.metadata?.domain ?? "unknown"} | {formatRelativeTime(item.createdAt)}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm text-emerald-300">{formatMetric(itemCorrected)}%</p>
+                              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">corrected</p>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm text-emerald-300">{formatMetric(itemCorrected)}%</p>
-                            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">corrected</p>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {history.length > ARCHIVE_PREVIEW_LIMIT && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowFullArchive((current) => !current)}
+                      className="w-full border-white/10 bg-black/20 text-white hover:bg-white/5"
+                    >
+                      {showFullArchive
+                        ? "Show fewer archive entries"
+                        : `Show ${hiddenHistoryCount} more ${hiddenHistoryCount === 1 ? "entry" : "entries"}`}
+                    </Button>
+                  )}
                 </div>
 
                 <div className="space-y-4">

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 from sklearn.metrics import confusion_matrix
+
+logger = logging.getLogger(__name__)
 
 try:
     from fairlearn.metrics import MetricFrame, demographic_parity_difference, equalized_odds_difference, selection_rate
@@ -26,25 +29,39 @@ def _safe_rate(num: float, den: float) -> float:
 def _prepare_sensitive_series(df: pd.DataFrame, sensitive_column: str) -> pd.Series:
     raw = df[sensitive_column]
     lowered = sensitive_column.lower()
+    logger.debug(f"[SENSITIVE_PREP] {sensitive_column}: dtype={raw.dtype}, unique_count={raw.nunique()}")
+    
     if pd.api.types.is_numeric_dtype(raw):
         numeric = pd.to_numeric(raw, errors="coerce")
         unique_count = int(numeric.nunique(dropna=True))
+        
         if "age" in lowered and unique_count > 8:
+            logger.info(f"[SENSITIVE_BINNING] {sensitive_column}: Age binning (was {unique_count} values → age brackets)")
             binned = pd.cut(
                 numeric,
                 bins=[-np.inf, 24, 29, 34, 39, 49, np.inf],
                 labels=["18-24", "25-29", "30-34", "35-39", "40-49", "50+"],
                 include_lowest=True,
             )
-            return binned.astype(str).replace("nan", "missing")
+            result = binned.astype(str).replace("nan", "missing")
+            logger.debug(f"[SENSITIVE_BINNING_RESULT] Groups after binning: {result.unique()}")
+            return result
+            
         if unique_count > 12:
             try:
                 bucket_count = min(5, max(3, unique_count // 8))
+                logger.info(f"[SENSITIVE_BINNING] {sensitive_column}: Numeric quantile binning ({unique_count} → {bucket_count} bins)")
                 binned = pd.qcut(numeric, q=bucket_count, duplicates="drop")
-                return binned.astype(str).replace("nan", "missing")
-            except Exception:
+                result = binned.astype(str).replace("nan", "missing")
+                logger.debug(f"[SENSITIVE_BINNING_RESULT] Groups after quantile binning: {result.nunique()}")
+                return result
+            except Exception as e:
+                logger.warning(f"[SENSITIVE_BINNING_FAIL] {sensitive_column}: Quantile binning failed: {e}")
                 pass
-    return raw.astype(str).replace("nan", "missing")
+    
+    result = raw.astype(str).replace("nan", "missing")
+    logger.debug(f"[SENSITIVE_PREP_FINAL] {sensitive_column}: Using raw values with {result.nunique()} groups")
+    return result
 
 
 def _group_confusion(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
@@ -140,9 +157,13 @@ def compute_structured_fairness_metrics(
             + accuracy_spread * 100
         ),
     )
+    
+    logger.info(f"[FAIRNESS_CALC_{sensitive_column}] Groups: {len(group_df)} | DP_Diff: {dp_diff:.6f} | EO_Gap: {eo_gap:.6f} | DI: {disparate_impact:.6f} | AccSpread: {accuracy_spread:.6f}")
+    logger.info(f"[FAIRNESS_SCORE_{sensitive_column}] Score components: DP*40={dp_diff*40:.2f} + EO*35={eo_gap*35:.2f} + DI*50={max(0.0, 0.8 - disparate_impact)*50:.2f} + AccSp*100={accuracy_spread*100:.2f}")
+    logger.info(f"[FAIRNESS_SCORE_{sensitive_column}] Final score: {fairness_score:.4f} (confidence: {confidence})")
+    
     confidence = "high" if len(df) >= 1000 and group_df["count"].min() >= 30 else "medium" if len(df) >= 200 else "low"
     risk_level = _risk_level_from_score(fairness_score)
-    notes = []
     if disparate_impact < 0.8:
         notes.append(f"Disparate impact is below the 0.80 guideline for {sensitive_column}.")
     if dp_diff > 0.1:
@@ -200,7 +221,12 @@ def compute_overall_fairness_summary(findings: List[Dict[str, Any]], intersectio
     scores = [float(f["fairness_score"]) for f in findings]
     if intersectional:
         scores.extend(float(f["fairness_score"]) for f in intersectional)
-    return round(float(np.mean(scores)), 4) if scores else 0.0
+    
+    overall = round(float(np.mean(scores)), 4) if scores else 0.0
+    logger.info(f"[FAIRNESS_SUMMARY] Individual scores: {scores} | Intersectional: {bool(intersectional)}")
+    logger.info(f"[FAIRNESS_OVERALL] Overall fairness score: {overall} (mean of {len(scores)} components)")
+    
+    return overall
 
 
 def build_intersectional_findings(

@@ -106,11 +106,43 @@ export async function generateAnalysisNarration(id) {
     throw error;
   }
 
-  const generated = await generateGeminiNarration(analysis);
-  analysis.result.explanation = {
-    ...(analysis.result.explanation || {}),
-    gemini_interpretation: generated,
-  };
+  if (!geminiConfigured()) {
+    analysis.result.explanation = {
+      ...(analysis.result.explanation || {}),
+      gemini_interpretation: buildGeminiInterpretationState(
+        {
+          status: 'not_configured',
+          generatedAt: null,
+          note: 'Set GEMINI_API_KEY on the backend to enable natural-language explainability.',
+        },
+        analysis.result.explanation?.gemini_interpretation,
+      ),
+    };
+    analysis.updatedAt = new Date().toISOString();
+    await repo.save(analysis);
+    return analysis;
+  }
+
+  try {
+    const generated = await generateGeminiNarration(analysis);
+    analysis.result.explanation = {
+      ...(analysis.result.explanation || {}),
+      gemini_interpretation: generated,
+    };
+  } catch (error) {
+    analysis.result.explanation = {
+      ...(analysis.result.explanation || {}),
+      gemini_interpretation: buildGeminiInterpretationState(
+        {
+          status: 'failed',
+          generatedAt: new Date().toISOString(),
+          note: getGeminiErrorMessage(error, 'Gemini explanation failed.'),
+        },
+        analysis.result.explanation?.gemini_interpretation,
+      ),
+    };
+  }
+
   analysis.updatedAt = new Date().toISOString();
   await repo.save(analysis);
   return analysis;
@@ -206,16 +238,13 @@ async function enrichGeminiNarration(analysis, options = { generate: false }) {
   if (!geminiConfigured() || !options.generate) {
     analysis.result.explanation = {
       ...(analysis.result.explanation || {}),
-      gemini_interpretation: {
-        provider: 'gemini',
-        model: env.geminiModel,
-        generatedAt: null,
-        text: '',
+      gemini_interpretation: buildGeminiInterpretationState({
         status: geminiConfigured() ? 'available_on_demand' : 'not_configured',
+        generatedAt: null,
         note: geminiConfigured()
           ? 'Gemini narration is available on demand from the explainability action.'
           : 'Set GEMINI_API_KEY on the backend to enable natural-language explainability.',
-      },
+      }),
     };
     return;
   }
@@ -229,14 +258,30 @@ async function enrichGeminiNarration(analysis, options = { generate: false }) {
   } catch (error) {
     analysis.result.explanation = {
       ...(analysis.result.explanation || {}),
-      gemini_interpretation: {
-        provider: 'gemini',
-        model: env.geminiModel,
-        generatedAt: new Date().toISOString(),
-        text: '',
+      gemini_interpretation: buildGeminiInterpretationState({
         status: 'failed',
-        note: error instanceof Error ? error.message : 'Gemini explanation failed.',
-      },
+        generatedAt: new Date().toISOString(),
+        note: getGeminiErrorMessage(error, 'Gemini explanation failed.'),
+      }),
     };
   }
+}
+
+function buildGeminiInterpretationState(overrides, existing = {}) {
+  return {
+    provider: existing.provider || 'gemini',
+    model: existing.model || env.geminiModel,
+    generatedAt: existing.generatedAt ?? null,
+    text: existing.text || '',
+    status: 'available_on_demand',
+    note: '',
+    ...overrides,
+  };
+}
+
+function getGeminiErrorMessage(error, fallback) {
+  if (error?.response?.data?.error?.message) return error.response.data.error.message;
+  if (error?.response?.data?.detail) return error.response.data.detail;
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
 }
