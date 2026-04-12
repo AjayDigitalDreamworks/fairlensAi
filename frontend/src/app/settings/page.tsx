@@ -253,15 +253,15 @@ export default function Settings() {
               {/* 2FA */}
               <div className="card-glow p-10 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 border-emerald-500/20">
                 <div className="flex flex-col md:flex-row gap-8 items-center md:items-start text-center md:text-left">
-                  <div className="p-5 bg-emerald-500/10 border border-emerald-500/20 h-fit">
-                    <ShieldCheck className="h-8 w-8 text-emerald-400" />
+                  <div className="p-5 bg-primary/10 border border-primary/20 h-fit">
+                    <ShieldCheck className="h-8 w-8 text-primary" />
                   </div>
                   <div className="flex-1 space-y-4">
                     <h3 className="text-xl font-bold text-white">Two-Factor Authentication</h3>
                     <p className="text-sm text-muted-foreground max-w-xl mx-auto md:mx-0">
                       Add an extra layer of security to your account. Two-factor authentication helps protect your audit data from unauthorized access.
                     </p>
-                    <Button variant="outline" className="border-emerald-500/30 text-emerald-400 text-sm px-12 py-6 rounded-none hover:bg-emerald-500/10 transition-all">
+                    <Button variant="outline" className="border-primary/30 text-primary text-sm px-12 py-6 rounded-none hover:bg-primary/10 transition-all">
                       Enable 2FA
                     </Button>
                   </div>
@@ -293,7 +293,7 @@ export default function Settings() {
                         </p>
                       </div>
                       <span className={`px-4 py-1 border text-xs font-medium ${
-                        login.status === 'Active' ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/5' : 'border-white/10 text-white/20'
+                        login.status === 'Active' ? 'border-primary/40 text-primary bg-primary/5' : 'border-white/10 text-white/20'
                       }`}>
                         {login.status}
                       </span>
