@@ -77,7 +77,7 @@ export default function DashboardPage() {
 
         {/* Header */}
         <div className="card-glow group relative overflow-hidden p-8">
-          <div className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]" />
+          <div className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-primary via-secondary to-primary shadow-[0_0_15px_rgba(var(--theme-glow),0.3)]" />
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h1 className="mb-2 font-sans text-3xl font-bold tracking-tight text-white">Dashboard</h1>
@@ -85,7 +85,7 @@ export default function DashboardPage() {
                 Overview of your fairness audit portfolio — track bias trends, compliance scores, and recent audit activity.
               </p>
             </div>
-            <Button asChild className="bg-emerald-500 text-black hover:bg-emerald-400">
+            <Button asChild className="bg-primary text-black hover:bg-primary/90">
               <Link to="/analyzer">
                 <Plus className="mr-2 h-4 w-4" />
                 New Audit
@@ -221,7 +221,7 @@ export default function DashboardPage() {
         </div>
 
         {/* CTA */}
-        <div className="card-glow relative overflow-hidden border border-emerald-500/20 bg-emerald-500/5 p-8">
+        <div className="card-glow relative overflow-hidden border border-primary/20 bg-primary/5 p-8">
           <div className="relative z-10 flex flex-col items-center gap-6 md:flex-row md:items-start">
             <div className="flex-1 space-y-3 text-center md:text-left">
               <h3 className="text-xl font-bold text-white">Ready to audit a new dataset?</h3>
@@ -230,7 +230,7 @@ export default function DashboardPage() {
                 evaluate fairness metrics, and generate a corrected output with a full audit report.
               </p>
               <div className="pt-4">
-                <Button asChild className="bg-emerald-500 px-8 py-6 text-sm font-bold text-black hover:bg-emerald-400">
+                <Button asChild className="bg-primary px-8 py-6 text-sm font-bold text-black hover:bg-primary/90">
                   <Link to="/analyzer">
                     <Plus className="mr-2 h-4 w-4" />
                     Start New Audit
@@ -240,7 +240,6 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-      </div>
     </Layout>
   );
 }

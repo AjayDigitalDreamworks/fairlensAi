@@ -10,6 +10,6 @@ export const env = {
   pythonServiceUrl: process.env.PYTHON_SERVICE_URL || 'http://localhost:8000',
   dataDir: process.env.DATA_DIR || path.join(process.cwd(), 'src', 'data'),
   geminiApiKey: process.env.GEMINI_API_KEY || '',
-  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  geminiModel: process.env.GEMINI_MODEL || process.env.FAIRAI_GEMINI_MODEL || 'gemini-2.5-flash',
   mongoUri: process.env.MONGO_URI || '',
 };

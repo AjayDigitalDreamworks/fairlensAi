@@ -1,81 +1,111 @@
-# FairAI Production Suite
+# FairSight AI: Production-Grade Fairness Auditing & Mitigation Suite
 
-A full-stack fairness auditing platform built from your uploaded frontend and integrated with:
-- React + Vite frontend
-- Express backend
-- Python FastAPI ML service
-- advanced tabular model selection with XGBoost, CatBoost, LightGBM, Random Forest, Extra Trees, HistGradientBoosting, and Logistic Regression
-- SHAP explainability for model-based audit paths
-- Apache Spark assisted large-dataset sampling
-- Fairlearn-backed mitigation candidates for threshold optimization and constrained reductions
-- fast custom reweighing for training-time fairness repair
-- Intersectional fairness analysis across combined sensitive groups
-- detection layer
-- explanation layer
-- root-cause layer
-- correction recommendation layer
-- mitigation preview
-- Docker and CI setup
+[![Built for Google Hackathon](https://img.shields.io/badge/Built%20for-Google%20Hackathon-blue.svg)](https://hackathons.google.com)
+[![Stack: React/FastAPI/Node](https://img.shields.io/badge/Stack-React%20%7C%20FastAPI%20%7C%20Node.js-green.svg)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)]()
 
-## Architecture
+> **The ultimate toolkit for mathematically-grounded AI fairness auditing, bias mitigation, and human-in-the-loop explainability.**
 
-- `frontend/` React + Vite app
-- `backend/` Express API and persistence layer
-- `ml-service/` FastAPI model and fairness analysis engine
-  Runs a direct fairness audit flow with surrogate-model prediction, explainability, proxy-risk detection, mitigation analysis, and report generation without requiring a separate pipeline setup.
+FairSight AI transforms complex mathematical fairness audits into intuitive, actionable dashboards. Designed for modern ML Ops, it bridges the gap between raw data bias and ethically-sound model deployment.
 
-pip install fairlearn
-pip install tensorflow
-pip install inFairness
-Install Java 17 as well if you want the local Spark acceleration path outside Docker.
+---
 
-## Local run
+## 🚀 Vision & Key Features
 
-### 1) ML service
+FairSight AI is more than just a metric dashboard; it's an end-to-end **Bias Correction Pipeline**.
+
+- **💎 Triple-Tier Analysis:** Detect binary, multi-class, and intersectional bias across complex demographic slices.
+- **⚡ Proactive Mitigation:** Apply state-of-the-art algorithms including **Fairlearn Exponentiated Gradient** and **AIF360 Adversarial Debiasing**.
+- **🧠 SHAP-Powered Explainability:** Understand *why* your model is biased with global feature importance and correlation mapping.
+- **✨ Gemini Narrative Engine:** (Optional) Integrated Google Gemini AI to provide natural language interpretations of complex fairness reports.
+- **💾 Production-Ready Persistence:** Full MongoDB history and binary artifact management for long-haul compliance tracking.
+
+---
+
+## 🛠 Tech Stack
+
+| Layer | Technologies |
+| :--- | :--- |
+| **Frontend** | React 18, Vite, Tailwind CSS, Lucide, Recharts (Sapphire Theme) |
+| **Orchestration** | Node.js, Express, Mongoose (MongoDB) |
+| **ML Engine** | Python 3.11, FastAPI, Scikit-learn, TensorFlow |
+| **Fairness Core** | Fairlearn, IBM AIF360, SHAP, Apache Spark (Sampling) |
+
+---
+
+## 🚦 Quick Start (Local Development)
+
+The project is architected as three decoupled microservices.
+
+### 1️⃣ Prerequisites
+- Node.js v20+
+- Python 3.11+
+- MongoDB instance (local or Atlas)
+
+### 2️⃣ Installation
+
+Clone the repo and install dependencies for all tiers:
+
+```bash
+# 1. ML Service
+cd ml-service && pip install -r requirements.txt
+
+# 2. Backend
+cd ../backend && npm install
+
+# 3. Frontend
+cd ../frontend && npm install
+```
+
+### 3️⃣ Running the Suite
+
+Run each service in a separate terminal:
+
+**ML Engine (Port 8000)**
 ```bash
 cd ml-service
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-# optional: copy .env.example to .env and set GEMINI_API_KEY
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 2) Backend
+**Backend API (Port 4000)**
 ```bash
 cd backend
-cp .env.example .env
-npm install
 npm run dev
 ```
 
-### 3) Frontend
+**Frontend Dashboard (Port 5173)**
 ```bash
 cd frontend
-cp .env.example .env
-npm install
 npm run dev
 ```
 
-Frontend: http://localhost:8080
-Backend: http://localhost:4000/api/v1/health
-ML service: http://localhost:8000/health
+---
 
-## API flow
+## 🐳 Docker Orchestration (Easiest Method)
 
-1. Frontend uploads file to Express backend.
-2. Express forwards the file and selected columns to FastAPI.
-3. FastAPI auto-detects domain, target, prediction, and sensitive columns when possible.
-4. FastAPI automatically detects target, prediction, and sensitive columns. It then computes fairness metrics, generates SHAP explanations, applies mitigation strategies, and creates a full audit report in one direct audit response.
-   The ML service can use XGBoost, CatBoost, LightGBM, and Fairlearn-backed workflows when those libraries are available in the runtime.
-   If you provide a Gemini API key during upload, the ml-service also adds a plain-language Gemini narrative on top of the SHAP output.
-5. Express stores the analysis, persists downloadable artifacts, and returns it to the frontend.
-6. Frontend keeps the latest analysis and local history for dashboard/report pages.
-7. Mitigation preview calls back through Express to FastAPI.
+Deploy the entire stack (including MongoDB) using a single command:
 
-## Notes
+```bash
+docker-compose up --build
+```
+- **Dashboard:** `http://localhost:5173`
+- **Backend API:** `http://localhost:4000`
+- **ML Insights:** `http://localhost:8000`
 
-- This is a strong production-style foundation, but not a fully hardened enterprise deployment.
-- Authentication, rate limiting, observability, and true retraining pipelines are not fully implemented.
-- Persistence currently uses a JSON file so the app runs out of the box without MongoDB.
-- Gemini is optional. Paste the key in the analyzer page for a single run, or set `GEMINI_API_KEY` in `ml-service/.env` if you want the narration layer available by default.
+---
+
+## 📖 How it Works: The Audit Flow
+
+1. **Upload:** User provides a `.pkl` / `.joblib` / `.h5` model and a reference dataset.
+2. **Detection:** The FastAPI engine calculates **Demographic Parity** and **Equal Opportunity** differences.
+3. **Explanation:** SHAP values are extracted to map the features driving bias.
+4. **Mitigation:** The "Mitigation Toolkit" allows users to wrap their models with fairness constraints (e.g., Threshold Optimization).
+5. **Artifact Export:** Download the corrected model and a machine-readable JSON Audit Report for compliance.
+
+---
+
+## 🛡 Ethical Guardrails
+*FairSight AI is a diagnostic tool and does not guarantee "perfect" fairness. It follows the principles of Disparate Impact (80% rule) and requires human-in-the-loop oversight for final deployments.*
+
+---
+**Developed for the Google Hackathon Series.**

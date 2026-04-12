@@ -17,13 +17,13 @@ export default function Index() {
         <div className="absolute inset-0 bg-grid opacity-30"></div>
         
         {/* Vertical scanning lines */}
-        <div className="absolute left-[20%] top-0 w-px h-full bg-gradient-to-b from-transparent via-emerald-500/30 to-transparent animate-scan-y"></div>
-        <div className="absolute left-[50%] top-0 w-px h-full bg-gradient-to-b from-transparent via-emerald-400/20 to-transparent animate-scan-y" style={{ animationDelay: '2s' }}></div>
-        <div className="absolute left-[80%] top-0 w-px h-full bg-gradient-to-b from-transparent via-emerald-500/20 to-transparent animate-scan-y" style={{ animationDelay: '4s' }}></div>
+        <div className="absolute left-[20%] top-0 w-px h-full bg-gradient-to-b from-transparent via-primary/30 to-transparent animate-scan-y"></div>
+        <div className="absolute left-[50%] top-0 w-px h-full bg-gradient-to-b from-transparent via-primary/20 to-transparent animate-scan-y" style={{ animationDelay: '2s' }}></div>
+        <div className="absolute left-[80%] top-0 w-px h-full bg-gradient-to-b from-transparent via-primary/20 to-transparent animate-scan-y" style={{ animationDelay: '4s' }}></div>
 
         {/* Subtle corner glow primarys */}
-        <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-emerald-500/5 rounded-full blur-[150px]"></div>
-        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-emerald-400/5 rounded-full blur-[120px]"></div>
+        <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[150px]"></div>
+        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-primary/5 rounded-full blur-[120px]"></div>
       </div>
       
       {/* Main Content Wrapper */}

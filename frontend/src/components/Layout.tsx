@@ -11,12 +11,14 @@ import {
   Zap,
   Shield,
   LogOut,
+  Database,
+  Cpu,
 } from "lucide-react";
 import { Button } from "./ui/button";
 
 import ThemeToggle from "./ThemeToggle";
 
-const sidebarItems = [
+const datasetSidebarItems = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Dataset Analyzer", href: "/analyzer", icon: BarChart3 },
   { name: "Explainability", href: "/explainability", icon: BrainCircuit },
@@ -26,9 +28,23 @@ const sidebarItems = [
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
+const modelSidebarItems = [
+  { name: "Dashboard", href: "/model-dashboard", icon: Home },
+  { name: "Model Analyzer", href: "/model-analyzer", icon: Cpu },
+  { name: "Explainability", href: "/model-explainability", icon: BrainCircuit },
+  { name: "Fairness Metrics", href: "/model-metrics", icon: Shield },
+  { name: "Mitigation Toolkit", href: "/model-mitigation", icon: Zap },
+  { name: "Reports", href: "/model-reports", icon: FileText },
+  { name: "Settings", href: "/settings", icon: Settings },
+];
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { pathname } = useLocation();
+  
+  // Decide active workspace based on current path
+  const isModelWorkspace = pathname.includes("model");
+  const activeSidebarItems = isModelWorkspace ? modelSidebarItems : datasetSidebarItems;
 
   return (
     <div className="min-h-screen flex relative">
@@ -56,8 +72,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-2 px-4 py-6">
-          {sidebarItems.map((item) => {
+        <nav className="flex-1 space-y-2 px-4 py-6 flex flex-col h-full overflow-y-auto">
+          {/* Workspace Switcher */}
+          <div className="mb-6 rounded-lg bg-black/40 p-1 border border-primary/10 flex">
+            <Link
+              to="/dashboard"
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-all ${!isModelWorkspace ? "bg-primary text-black shadow-[0_0_10px_rgba(var(--theme-glow),0.3)]" : "text-muted-foreground hover:text-white"}`}
+            >
+              <Database className="h-3.5 w-3.5" />
+              Datasets
+            </Link>
+            <Link
+              to="/model-dashboard"
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-all ${isModelWorkspace ? "bg-primary text-black shadow-[0_0_10px_rgba(var(--theme-glow),0.3)]" : "text-muted-foreground hover:text-white"}`}
+            >
+              <Cpu className="h-3.5 w-3.5" />
+              Models
+            </Link>
+          </div>
+
+          <div className="space-y-2">
+          {activeSidebarItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
@@ -75,6 +110,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </NavLink>
             );
           })}
+          </div>
         </nav>
 
         {/* Footer */}

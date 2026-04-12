@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 import io
 import json
 from functools import lru_cache
@@ -11,7 +14,21 @@ from pydantic import BaseModel, Field
 
 SERVICE_VERSION = "3.0.0"
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="FairAI ML Service", version=SERVICE_VERSION)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8080", "http://localhost:5173", "http://127.0.0.1:8080", "http://127.0.0.1:5173"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+from app.fairsight.router import router as fairsight_router
+app.include_router(fairsight_router)
 
 
 class AnalyzeResponse(BaseModel):

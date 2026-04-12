@@ -11,6 +11,26 @@ import mongoose from 'mongoose';
 const app = express();
 fs.mkdirSync(env.dataDir, { recursive: true });
 
+const localhostOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+function buildCorsOriginConfig(rawOrigins) {
+  const configuredOrigins = (rawOrigins || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (configuredOrigins.includes('*')) {
+    return true;
+  }
+
+  if (env.nodeEnv !== 'production') {
+    // Let local frontends on any port work during development and Docker runs.
+    return [localhostOriginPattern, ...configuredOrigins];
+  }
+
+  return configuredOrigins.length > 0 ? configuredOrigins : ['http://localhost:8080'];
+}
+
 if (env.mongoUri) {
   mongoose.connect(env.mongoUri)
     .then(() => console.log('Connected to MongoDB'))
@@ -19,7 +39,7 @@ if (env.mongoUri) {
   console.warn('MONGO_URI is not set in environment. Running without MongoDB connection.');
 }
 
-app.use(cors({ origin: env.corsOrigin.split(',').map((value) => value.trim()) }));
+app.use(cors({ origin: buildCorsOriginConfig(env.corsOrigin) }));
 app.use(helmet());
 app.use(express.json({ limit: '5mb' }));
 app.use(morgan('dev'));

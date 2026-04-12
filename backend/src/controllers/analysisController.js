@@ -1,5 +1,6 @@
 import { createAnalysis, createMitigationPreview, deleteAnalysis, generateAnalysisNarration, getAnalysis, getAnalysisArtifact, listAnalyses } from '../services/analysisService.js';
 import { healthCheckPython } from '../services/pythonService.js';
+import { detectFairsightBias, uploadFairsightAssets, mitigateFairsightBias, getFairsightSuggestions, downloadFairsightModel, downloadFairsightReport, getFairsightHistory, getFairsightExplain } from '../services/fairsightService.js';
 
 export async function health(req, res, next) {
   try {
@@ -73,6 +74,39 @@ export async function generateGeminiExplanation(req, res, next) {
   }
 }
 
+export async function uploadFairsightModel(req, res, next) {
+  const modelFile = req.files?.model_file?.[0];
+  const csvFile = req.files?.csv_file?.[0];
+
+  try {
+    if (!modelFile || !csvFile) {
+      return res.status(400).json({ message: 'Both model_file and csv_file are required.' });
+    }
+
+    const result = await uploadFairsightAssets({
+      modelPath: modelFile.path,
+      modelName: modelFile.originalname,
+      csvPath: csvFile.path,
+      csvName: csvFile.originalname,
+    });
+
+    res.json(result);
+  } catch (error) {
+    next(error);
+  } finally {
+    cleanupUploadedFiles([modelFile, csvFile]);
+  }
+}
+
+export async function detectFairsightModel(req, res, next) {
+  try {
+    const result = await detectFairsightBias(req.body);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function downloadCorrectedCsv(req, res, next) {
   try {
     const artifact = await getAnalysisArtifact(req.params.id, 'csv');
@@ -96,3 +130,75 @@ function stripInternalPaths(analysis) {
   const { artifactPaths, ...rest } = analysis;
   return rest;
 }
+
+function cleanupUploadedFiles(files) {
+  for (const file of files) {
+    if (file?.path) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        // Ignore cleanup failures for temp uploads.
+      }
+    }
+  }
+}
+
+export async function mitigateFairsightModel(req, res, next) {
+  try {
+    const result = await mitigateFairsightBias(req.body);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getFairsightSuggestionsCtrl(req, res, next) {
+  try {
+    const result = await getFairsightSuggestions(req.body);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function explainFairsightModelCtrl(req, res, next) {
+  try {
+    const result = await getFairsightExplain(req.body);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+
+export async function downloadFairsightModelCtrl(req, res, next) {
+  try {
+    const stream = await downloadFairsightModel(req.params.sessionId);
+    res.setHeader('Content-Disposition', 'attachment; filename="corrected_model.pkl"');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    stream.pipe(res);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function downloadFairsightReportCtrl(req, res, next) {
+  try {
+    const stream = await downloadFairsightReport(req.params.sessionId);
+    res.setHeader('Content-Disposition', 'attachment; filename="fairsight_bias_audit.json"');
+    res.setHeader('Content-Type', 'application/json');
+    stream.pipe(res);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getFairsightHistoryCtrl(req, res, next) {
+  try {
+    const history = await getFairsightHistory();
+    res.json({ items: history });
+  } catch (error) {
+    next(error);
+  }
+}
+

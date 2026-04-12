@@ -66,7 +66,7 @@ export default function Settings() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-3 px-8 py-5 text-sm font-medium transition-all relative overflow-hidden ${
                   activeTab === tab.id
-                    ? "text-emerald-400 border-b-2 border-emerald-500 bg-emerald-500/5"
+                    ? "text-primary border-b-2 border-primary bg-primary/5"
                     : "text-white/40 hover:text-white hover:bg-white/5 border-b-2 border-transparent"
                 }`}
               >
@@ -126,7 +126,7 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <Button className="w-full md:w-auto bg-emerald-500 text-black font-semibold px-8 py-6 rounded-none hover:bg-emerald-400 transition-all border border-emerald-400">
+                <Button className="w-full md:w-auto bg-primary text-black font-semibold px-8 py-6 rounded-none hover:bg-primary/90 transition-all border border-primary/40">
                   <Save className="h-4 w-4 mr-3" />
                   Save Changes
                 </Button>
@@ -181,7 +181,7 @@ export default function Settings() {
                 ))}
               </div>
 
-              <Button className="w-full md:w-auto bg-emerald-500 text-black font-semibold px-8 py-6 rounded-none hover:bg-emerald-400 transition-all border border-emerald-400">
+              <Button className="w-full md:w-auto bg-primary text-black font-semibold px-8 py-6 rounded-none hover:bg-primary/90 transition-all border border-primary/40">
                 <Save className="h-4 w-4 mr-3" />
                 Save Preferences
               </Button>
@@ -192,9 +192,9 @@ export default function Settings() {
           {activeTab === "security" && (
             <div className="space-y-8">
               {/* API Keys */}
-              <div className="card-glow p-10 space-y-10 border-teal-500/20">
+              <div className="card-glow p-10 space-y-10 border-secondary/20">
                 <h2 className="text-sm font-semibold text-white uppercase tracking-wide flex items-center gap-3">
-                  <Key className="w-4 h-4 text-teal-400" />
+                  <Key className="w-4 h-4 text-secondary" />
                   API Keys
                 </h2>
 

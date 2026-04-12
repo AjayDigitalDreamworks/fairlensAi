@@ -9,6 +9,12 @@ import MetricsPage from "@/app/metrics/page";
 import MitigationPage from "@/app/mitigation/page";
 import ReportsPage from "@/app/reports/page";
 import SettingsPage from "@/app/settings/page";
+import ModelDashboardPage from "@/app/model-dashboard/page";
+import ModelAnalyzerPage from "@/app/model-analyzer/page";
+import ModelExplainabilityPage from "@/app/model-explainability/page";
+import ModelMetricsPage from "@/app/model-metrics/page";
+import ModelMitigationPage from "@/app/model-mitigation/page";
+import ModelReportsPage from "@/app/model-reports/page";
 
 export default function App() {
   return (
@@ -22,6 +28,12 @@ export default function App() {
         <Route path="/mitigation" element={<MitigationPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/model-dashboard" element={<ModelDashboardPage />} />
+        <Route path="/model-analyzer" element={<ModelAnalyzerPage />} />
+        <Route path="/model-explainability" element={<ModelExplainabilityPage />} />
+        <Route path="/model-metrics" element={<ModelMetricsPage />} />
+        <Route path="/model-mitigation" element={<ModelMitigationPage />} />
+        <Route path="/model-reports" element={<ModelReportsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster position="bottom-right" theme="dark" />

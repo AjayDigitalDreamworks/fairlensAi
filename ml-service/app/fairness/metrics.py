@@ -157,12 +157,18 @@ def compute_structured_fairness_metrics(
             + accuracy_spread * 100
         ),
     )
-    
+
+    if group_df.empty:
+        confidence = "low"
+    else:
+        min_group_size = int(group_df["count"].min())
+        confidence = "high" if len(df) >= 1000 and min_group_size >= 30 else "medium" if len(df) >= 200 else "low"
+
+    notes: List[str] = []
     logger.info(f"[FAIRNESS_CALC_{sensitive_column}] Groups: {len(group_df)} | DP_Diff: {dp_diff:.6f} | EO_Gap: {eo_gap:.6f} | DI: {disparate_impact:.6f} | AccSpread: {accuracy_spread:.6f}")
     logger.info(f"[FAIRNESS_SCORE_{sensitive_column}] Score components: DP*40={dp_diff*40:.2f} + EO*35={eo_gap*35:.2f} + DI*50={max(0.0, 0.8 - disparate_impact)*50:.2f} + AccSp*100={accuracy_spread*100:.2f}")
     logger.info(f"[FAIRNESS_SCORE_{sensitive_column}] Final score: {fairness_score:.4f} (confidence: {confidence})")
-    
-    confidence = "high" if len(df) >= 1000 and group_df["count"].min() >= 30 else "medium" if len(df) >= 200 else "low"
+
     risk_level = _risk_level_from_score(fairness_score)
     if disparate_impact < 0.8:
         notes.append(f"Disparate impact is below the 0.80 guideline for {sensitive_column}.")
