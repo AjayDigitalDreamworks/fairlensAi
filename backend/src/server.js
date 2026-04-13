@@ -57,6 +57,9 @@ app.use((error, req, res, next) => {
   res.status(status).json({ message });
 });
 
-app.listen(env.port, () => {
+const server = app.listen(env.port, () => {
   console.log(`Backend running on http://localhost:${env.port}`);
 });
+
+// Set global request timeout to 10 minutes to accommodate heavy ML analysis
+server.setTimeout(600000);

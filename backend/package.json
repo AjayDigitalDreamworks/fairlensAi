@@ -18,5 +18,14 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "uuid": "^11.1.0"
+  },
+  "nodemonConfig": {
+    "ignore": [
+      "data/*",
+      "artifacts/*",
+      "uploads/*",
+      "*.test.js",
+      "fixtures/*"
+    ]
   }
 }

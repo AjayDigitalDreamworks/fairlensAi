@@ -245,7 +245,7 @@ def _optimize_thresholds_for_attribute(
         preds = _apply_group_thresholds(df, grouping, score_column, thresholds, col_name)
         temp = df.copy()
         temp[col_name] = preds
-        findings = [compute_structured_fairness_metrics(temp, sensitive_column, col_name, target_column, positive_label)]
+        findings = [compute_structured_fairness_metrics(temp, sensitive_column, col_name, target_column, positive_label, skip_fairlearn=True)]
         fairness_score = compute_overall_fairness_summary(findings)
         accuracy = _accuracy(temp, target_column, col_name, positive_label)
         objective_score = fairness_score * 0.78 + accuracy * 100.0 * 0.22

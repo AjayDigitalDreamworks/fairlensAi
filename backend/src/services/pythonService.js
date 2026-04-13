@@ -5,7 +5,7 @@ import { env } from '../config/env.js';
 
 const client = axios.create({
   baseURL: env.pythonServiceUrl,
-  timeout: 120000,
+  timeout: 300000,
 });
 
 function wrapPythonServiceError(error) {

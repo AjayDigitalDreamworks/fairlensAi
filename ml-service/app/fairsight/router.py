@@ -38,6 +38,13 @@ router = APIRouter(prefix="/fairsight", tags=["FairSight AI"])
 SESSION_STORE: Dict[str, Dict[str, Any]] = {}
 
 
+def get_session_dir(session_id: str) -> str:
+    """Get absolute path to session directory, ensuring it exists outside the watched app folder."""
+    storage_root = os.path.abspath(os.path.join(os.getcwd(), "..", "fairsight_storage"))
+    session_dir = os.path.join(storage_root, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+    return session_dir
+
 # ═══════════════════════════════════════════════
 # /upload — Upload model + dataset, auto-detect sensitive cols
 # ═══════════════════════════════════════════════
@@ -48,10 +55,10 @@ async def upload_assets(
 ):
     try:
         session_id = str(uuid.uuid4())
-        os.makedirs(f"temp/{session_id}", exist_ok=True)
+        session_dir = get_session_dir(session_id)
 
         # Save model file
-        model_path = f"temp/{session_id}/{model_file.filename}"
+        model_path = os.path.join(session_dir, model_file.filename)
         with open(model_path, "wb") as f:
             f.write(await model_file.read())
 
@@ -62,7 +69,7 @@ async def upload_assets(
             logger.error(f"Failed to read CSV in session {session_id}: {e}")
             raise HTTPException(status_code=400, detail=f"Invalid CSV file format: {e}")
 
-        df_path = f"temp/{session_id}/data.csv"
+        df_path = os.path.join(session_dir, "data.csv")
         df.to_csv(df_path, index=False)
 
         # Auto-detect sensitive columns
@@ -391,7 +398,8 @@ async def mitigate(req: MitigateRequest):
         # Save corrected model if available
         corrected_model_path = None
         if corrected_model is not None:
-            corrected_model_path = f"temp/{req.session_id}/corrected_model.pkl"
+            session_dir = get_session_dir(req.session_id)
+            corrected_model_path = os.path.join(session_dir, "corrected_model.pkl")
             export_corrected_model(
                 corrected_model,
                 corrected_model_path,
@@ -404,7 +412,7 @@ async def mitigate(req: MitigateRequest):
 
         # Generate report
         detect_report = s.get("detect_report", {})
-        report_prefix = f"temp/{req.session_id}/bias_report"
+        report_prefix = os.path.join(get_session_dir(req.session_id), "bias_report")
         try:
             generate_bias_report(
                 detect_report, eval_result, req.sensitive_col,
@@ -538,7 +546,7 @@ async def export_report(req: DetectRequest):
     if not s:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    prefix = f"temp/{req.session_id}/report"
+    prefix = os.path.join(get_session_dir(req.session_id), "report")
     before = s.get("detect_report", {})
     after = s.get("mitigation_eval", {})
 

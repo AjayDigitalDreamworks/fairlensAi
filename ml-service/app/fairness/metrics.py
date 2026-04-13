@@ -98,6 +98,7 @@ def compute_structured_fairness_metrics(
     prediction_column: str,
     target_column: Optional[str],
     positive_label: Any = 1,
+    skip_fairlearn: bool = False,
 ) -> Dict[str, Any]:
     if sensitive_column not in df.columns or prediction_column not in df.columns:
         raise ValueError("Missing sensitive or prediction column for fairness metrics.")
@@ -184,7 +185,7 @@ def compute_structured_fairness_metrics(
         notes.append(f"No material fairness gap was detected for {sensitive_column}.")
 
     fairlearn_summary: Dict[str, Any] = {"available": FAIRLEARN_METRICS_AVAILABLE}
-    if FAIRLEARN_METRICS_AVAILABLE:
+    if FAIRLEARN_METRICS_AVAILABLE and not skip_fairlearn:
         mf = MetricFrame(
             metrics={
                 "selection_rate": selection_rate,
@@ -262,7 +263,7 @@ def build_intersectional_findings(
         temp = df.copy()
         col = f"__fairai_intersection__{a}__{b}"
         temp[col] = combo
-        metrics = compute_structured_fairness_metrics(temp, col, prediction_column, target_column, positive_label)
+        metrics = compute_structured_fairness_metrics(temp, col, prediction_column, target_column, positive_label, skip_fairlearn=True)
         metrics["sensitive_column"] = f"{a} x {b}"
         metrics["component_sensitive_columns"] = [a, b]
         metrics["is_intersectional"] = True
