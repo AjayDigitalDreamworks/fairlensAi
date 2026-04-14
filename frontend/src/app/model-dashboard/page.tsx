@@ -1,6 +1,7 @@
 "use client";
 
 import Layout from "@/components/Layout";
+import QuickActions from "@/components/QuickActions";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { Brain, Plus, Activity, Layers, ActivitySquare, Database, Loader2, Calendar } from "lucide-react";
@@ -111,8 +112,10 @@ export default function ModelDashboardPage() {
           </div>
         ) : (
           <>
+            <QuickActions />
+
             {/* Quick Stats */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-in fade-in slide-in-from-bottom-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-in fade-in slide-in-from-bottom-4 mt-8">
               <StatCard title="Unique Models Analyzed" value={activeModels.toString()} icon={<Layers className="h-4 w-4 text-primary" />} trend="All time" />
               <StatCard title="Avg Fairness Score (DB)" value={`${avgFairness}%`} icon={<ActivitySquare className="h-4 w-4 text-primary" />} trend="Aggregated" />
               <StatCard title="Historical Bias Alerts" value={criticalAlerts.toString()} icon={<Activity className="h-4 w-4 text-destructive" />} trend={criticalAlerts > 0 ? "Flagged models" : "All clean"} isWarning={criticalAlerts > 0} />

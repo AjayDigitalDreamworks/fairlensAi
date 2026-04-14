@@ -29,6 +29,7 @@ from .evaluation import evaluate_before_after
 from .reporting import generate_bias_report, export_corrected_model
 from .model_loader import load_model_auto
 from .gemini_advisor import get_gemini_suggestions
+from .compliance_engine import ComplianceViolationDetector, ComplianceCostCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,30 @@ async def detect(req: DetectRequest):
         A = df[sensitive_col]
 
         report = detect_bias(model, X, y, A)
+
+        # Domain assumption heuristic for demo: if "credit" or "loan" in columns, use Credit rules. Otherwise assume Hiring or Credit fallback.
+        cols_lower = [c.lower() for c in X.columns]
+        is_credit = any(kw in c for c in cols_lower for kw in ["credit", "loan", "balance", "default"])
+        domain = "credit" if is_credit else "hiring"
+
+        # Attach Compliance Violations and Cost Estimates directly into the model report
+        report["compliance"] = ComplianceViolationDetector.detect_violations(
+            domain=domain,
+            sensitive_column=sensitive_col,
+            disparate_impact=report.get("dpd", 0.85),  # Using dpd proxy if raw DI format varies
+            dpd=report.get("dpd", 0.0),
+            eod=report.get("eod", 0.0),
+            fairness_score=report.get("performance", {}).get("accuracy", 0.90) * 100, 
+            group_metrics=report.get("by_group", [])
+        )
+        
+        severity = "low" if report["compliance"]["overall_status"] == "COMPLIANT" else "high"
+        report["cost_exposure"] = ComplianceCostCalculator.calculate_total_exposure(
+            severity=severity, domain=domain,
+            disparate_impact=report.get("dpd", 0.85),
+            dpd=report.get("dpd", 0.0),
+            eod=report.get("eod", 0.0),
+        )
 
         # Add mitigation recommendation with detailed reasoning
         recommended = select_mitigation_method(report, has_training_data=True, is_deep_learning=False)
@@ -394,6 +419,38 @@ async def mitigate(req: MitigateRequest):
 
         # Evaluate before/after
         eval_result = evaluate_before_after(y, y_before, y_after, A, req.method)
+
+        # Domain assumption heuristic
+        cols_lower = [c.lower() for c in X.columns]
+        is_credit = any(kw in c for c in cols_lower for kw in ["credit", "loan", "balance", "default"])
+        domain = "credit" if is_credit else "hiring"
+
+        # Calculate ROI projection
+        detect_report = s.get("detect_report", {})
+        before_di = detect_report.get("dpd", 0.85)  # proxy
+        before_dpd = detect_report.get("dpd", 0.0)
+        before_eod = detect_report.get("eod", 0.0)
+        before_acc = detect_report.get("performance", {}).get("accuracy", 0.90) * 100
+
+        after_dpd = eval_result.get("demographic_parity_difference", 0.0)
+        after_eod = eval_result.get("equalized_odds_difference", 0.0)
+        # simplistic heuristic for after_di based on dpd
+        after_di = max(0.0, min(1.0, 1.0 - after_dpd))
+        after_acc = eval_result.get("accuracy", 0.90) * 100
+
+        before_compliant = before_di >= 0.80 and before_dpd <= 0.10
+        after_compliant = after_di >= 0.80 and after_dpd <= 0.10
+
+        roi_projection = ComplianceCostCalculator.calculate_roi(
+            before_severity="low" if before_compliant else "high",
+            after_severity="low" if after_compliant else "high",
+            domain=domain,
+            disparate_impact_before=before_di, disparate_impact_after=after_di,
+            dpd_before=before_dpd, dpd_after=after_dpd,
+            eod_before=before_eod, eod_after=after_eod,
+            fairness_score_before=before_acc, fairness_score_after=after_acc
+        )
+        eval_result["roi_projection"] = roi_projection
 
         # Save corrected model if available
         corrected_model_path = None

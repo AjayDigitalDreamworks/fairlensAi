@@ -15,6 +15,9 @@ import ModelExplainabilityPage from "@/app/model-explainability/page";
 import ModelMetricsPage from "@/app/model-metrics/page";
 import ModelMitigationPage from "@/app/model-mitigation/page";
 import ModelReportsPage from "@/app/model-reports/page";
+import CostCalculatorPage from "@/app/cost-calculator/page";
+import ComplianceDashboardPage from "@/app/compliance/page";
+import RealtimeMonitorPage from "@/app/realtime-monitor/page";
 
 export default function App() {
   return (
@@ -34,6 +37,9 @@ export default function App() {
         <Route path="/model-metrics" element={<ModelMetricsPage />} />
         <Route path="/model-mitigation" element={<ModelMitigationPage />} />
         <Route path="/model-reports" element={<ModelReportsPage />} />
+        <Route path="/cost-calculator" element={<CostCalculatorPage />} />
+        <Route path="/compliance" element={<ComplianceDashboardPage />} />
+        <Route path="/realtime-monitor" element={<RealtimeMonitorPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster position="bottom-right" theme="dark" />

@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { env } from '../config/env.js';
 import { downloadCorrectedCsv, downloadReportPdf, detectFairsightModel, generateGeminiExplanation, getOne, health, listAll, mitigationPreview, removeOne, uploadAndAnalyze, uploadFairsightModel, mitigateFairsightModel, getFairsightSuggestionsCtrl, downloadFairsightModelCtrl, downloadFairsightReportCtrl, getFairsightHistoryCtrl, explainFairsightModelCtrl } from '../controllers/analysisController.js';
+import { costCalculator, roiCalculator, violationChecker, counterfactualAnalysis, driftDetection, biasAttribution, regulationsLookup, demoDataLookup } from '../controllers/complianceController.js';
 
 const router = Router();
 
@@ -40,5 +41,15 @@ router.post('/fairsight/explain', explainFairsightModelCtrl);
 router.get('/fairsight/download-model/:sessionId', downloadFairsightModelCtrl);
 router.get('/fairsight/download-report/:sessionId', downloadFairsightReportCtrl);
 router.get('/fairsight/history', getFairsightHistoryCtrl);
+
+// Compliance & Cost Calculator routes
+router.post('/compliance/cost-calculator', costCalculator);
+router.post('/compliance/roi', roiCalculator);
+router.post('/compliance/check-violations', violationChecker);
+router.post('/compliance/counterfactual', counterfactualAnalysis);
+router.post('/compliance/drift-detection', driftDetection);
+router.post('/compliance/bias-attribution', biasAttribution);
+router.get('/compliance/regulations/:domain', regulationsLookup);
+router.get('/compliance/demo-data/:domain', demoDataLookup);
 
 export default router;

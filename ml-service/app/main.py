@@ -28,7 +28,9 @@ app.add_middleware(
 )
 
 from app.fairsight.router import router as fairsight_router
+from app.fairsight.compliance_router import router as compliance_router
 app.include_router(fairsight_router)
+app.include_router(compliance_router)
 
 
 class AnalyzeResponse(BaseModel):

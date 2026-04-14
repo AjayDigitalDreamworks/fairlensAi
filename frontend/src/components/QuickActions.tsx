@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { TrendingUp, CheckCircle, AlertTriangle, ArrowRight, BrainCircuit } from "lucide-react";
+import { TrendingUp, CheckCircle, AlertTriangle, ArrowRight, BrainCircuit, DollarSign, Scale, Radio } from "lucide-react";
 
 const actions = [
   {
@@ -10,11 +10,25 @@ const actions = [
     accent: "primary"
   },
   {
-    href: "/metrics",
-    icon: CheckCircle,
-    title: "View Metrics",
-    description: "Detailed fairness scores per attribute",
+    href: "/cost-calculator",
+    icon: DollarSign,
+    title: "Cost Calculator",
+    description: "Calculate ECOA litigation risk exposure",
+    accent: "accent"
+  },
+  {
+    href: "/compliance",
+    icon: Scale,
+    title: "Compliance Dashboard",
+    description: "Track EEOC & federal logic constraints",
     accent: "secondary"
+  },
+  {
+    href: "/realtime-monitor",
+    icon: Radio,
+    title: "Live Fairness Monitor",
+    description: "WebSocket bias drift detection",
+    accent: "primary"
   },
   {
     href: "/explainability",
@@ -52,7 +66,7 @@ const accentStyles = {
 
 export default function QuickActions() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {actions.map((action, idx) => {
         const Icon = action.icon;
         const style = accentStyles[action.accent as keyof typeof accentStyles];

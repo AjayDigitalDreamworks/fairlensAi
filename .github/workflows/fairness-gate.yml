@@ -1,0 +1,86 @@
+name: FairSight AI - CI/CD Fairness Gate
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  fairness-audit:
+    name: Model Fairness Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install Dependencies
+      run: |
+        cd ml-service
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # Install additional testing dependencies if needed
+        pip install requests pytest
+
+    - name: Run FairSight CI/CD Gate
+      id: fairness_gate
+      env:
+        FAIRNESS_THRESHOLD: 80.0
+        MIN_DISPARATE_IMPACT: 0.80
+      run: |
+        cd ml-service
+        echo "Running FairSight AI CI/CD Compliance Gate..."
+        # In a real environment, this might start the server in the background and ping it,
+        # or load the model directly. Here we run our CI gate script.
+        python scripts/ci_fairness_gate.py
+        
+    - name: Upload Compliance Report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: fairness-compliance-report
+        path: ml-service/ci_reports/fairness_audit_report.json
+        
+    - name: PR Comment - Audit Results
+      if: github.event_name == 'pull_request' && always()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          let commentBody = '## 🛡️ FairSight AI Compliance Audit\n\n';
+          
+          try {
+            const report = JSON.parse(fs.readFileSync('ml-service/ci_reports/fairness_audit_report.json', 'utf8'));
+            
+            const passed = report.status === 'PASS';
+            const statusIcon = passed ? '✅' : '❌';
+            
+            commentBody += `**Status:** ${statusIcon} ${report.status}\n\n`;
+            commentBody += `### Metrics Tracker\n`;
+            commentBody += `| Metric | Score | Threshold | Status |\n`;
+            commentBody += `|---|---|---|---|\n`;
+            commentBody += `| **Overall Fairness** | ${report.metrics.fairness_score}% | > 80.0% | ${report.metrics.fairness_score >= 80 ? '🟢' : '🔴'} |\n`;
+            commentBody += `| **Disparate Impact (4/5ths)** | ${report.metrics.disparate_impact} | > 0.80 | ${report.metrics.disparate_impact >= 0.80 ? '🟢' : '🔴'} |\n`;
+            commentBody += `| **Model Accuracy** | ${report.metrics.accuracy}% | - | ⚪ |\n\n`;
+            
+            if (!passed) {
+              commentBody += `> **⚠️ DEPLOYMENT BLOCKED:** The model failed to meet minimum regulatory compliance standards (ECOA/EEOC). Please mitigate bias before merging.\n`;
+            } else {
+              commentBody += `> **🎉 DEPLOYMENT APPROVED:** All automated fairness checks passed.\n`;
+            }
+            
+          } catch (e) {
+            commentBody += `⚠️ **Error:** Could not parse fairness audit report.\n`;
+          }
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: commentBody
+          });

@@ -17,30 +17,32 @@ export default function Hero() {
           <div className="lg:col-span-6 space-y-8 text-center lg:text-left">
             <div className="inline-flex items-center rounded-none border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-[10px] font-black font-mono text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-colors hover:bg-emerald-500/20 cursor-default animate-float uppercase tracking-widest">
               <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
-              AI Fairness Audit Platform
+              Financial Compliance Copilot for AI Systems
             </div>
 
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white leading-[1.1]">
-              Detect & Fix
+              Turn AI Bias Into
               <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-emerald-300 to-emerald-400 animate-gradient-x">
-                Bias in AI
+                Dollar-Denominated Risk
               </span>
             </h1>
 
             <p className="max-w-2xl mx-auto lg:mx-0 text-lg sm:text-xl text-muted-foreground/90 font-mono text-sm leading-relaxed uppercase tracking-tighter opacity-80">
-              Automated fairness auditing for AI models. Upload your dataset and get a complete bias analysis with corrected outputs — for hiring, finance, and healthcare.
+              $500M+ is lost annually to AI bias lawsuits. FairSight AI monitors your models in real-time, maps bias directly to ECOA & EEOC regulations, and fixes violations in one click.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start pt-4">
               <Button asChild size="lg" className="bg-emerald-500 text-black font-bold uppercase tracking-[0.3em] text-[10px] px-10 py-8 rounded-none shadow-[0_0_30px_rgba(16,185,129,0.3)] hover:brightness-110 transition-all border border-emerald-400">
-                <Link to="/dashboard">
-                  Start Free Audit
+                <Link to="/cost-calculator">
+                  Calculate Your Risk
                   <ArrowRight className="h-4 w-4 ml-3" />
                 </Link>
               </Button>
-              <Button size="lg" variant="outline" className="border-emerald-500/30 text-white font-mono text-[10px] uppercase font-black px-10 py-8 rounded-none hover:bg-emerald-500/10 transition-all">
-                View Live Demo
+              <Button asChild size="lg" variant="outline" className="border-emerald-500/30 text-white font-mono text-[10px] uppercase font-black px-10 py-8 rounded-none hover:bg-emerald-500/10 transition-all">
+                <Link to="/realtime-monitor">
+                  View Live Monitor
+                </Link>
               </Button>
             </div>
           </div>

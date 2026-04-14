@@ -1,42 +1,42 @@
 "use client";
 
-import { Shield, Zap, BarChart3, AlertCircle, FileText } from "lucide-react";
+import { Shield, Zap, BarChart3, AlertCircle, FileText, DollarSign, Scale, Radio } from "lucide-react";
 
 const features = [
   {
-    icon: BarChart3,
-    title: "Dataset Bias Analyzer",
-    description: "Detect gender, region, and class imbalances with precision bias scoring (0-100)",
+    icon: DollarSign,
+    title: "Bias Cost Calculator",
+    description: "Translate abstract FAIRNESS METRICS into DOLLAR-DENOMINATED RISK SCORES. Identify litigation exposure and ROI of mitigation.",
     iconBg: "bg-emerald-500/10 text-emerald-400",
   },
   {
-    icon: Shield,
-    title: "Fairness Metrics Engine",
-    description: "Calculate Demographic Parity, Equal Opportunity, and Disparate Impact metrics",
+    icon: Scale,
+    title: "Domain Compliance Engine",
+    description: "Map bias to actual regulatory laws: ECOA/SR 11-7 for Financial Credit, and EEOC/NYC LL144 for Hiring decisions.",
     iconBg: "bg-teal-500/10 text-teal-400",
   },
   {
-    icon: Zap,
-    title: "Bias Mitigation Toolkit",
-    description: "One-click automated fixes: re-sampling, re-weighting, adversarial debiasing",
+    icon: Radio,
+    title: "Real-Time Fairness Monitor",
+    description: "Live WebSocket dashboard to detect BIAS DRIFT via CUSUM anomalies before they escalate into lawsuits.",
     iconBg: "bg-emerald-400/10 text-emerald-300",
   },
   {
-    icon: AlertCircle,
-    title: "Explainable AI Layer",
-    description: "SHAP/LIME-style explanations that tell you WHY your model is biased",
+    icon: Zap,
+    title: "One-Click Bias Mitigation",
+    description: "Automatically apply threshold optimization or reweighing to drastically improve FAIRNESS without sacrificing ACCURACY.",
     iconBg: "bg-emerald-500/10 text-emerald-400",
   },
   {
-    icon: Zap,
-    title: "Universal API/SDK",
-    description: "Works with Python models, web apps, and Google Cloud integrations",
+    icon: AlertCircle,
+    title: "Counterfactual Explorer",
+    description: "Run 'WHAT-IF' scenario simulations to test compliance against the 4/5ths RULE or perfect demographic parity limits.",
     iconBg: "bg-emerald-400/10 text-emerald-300",
   },
   {
     icon: FileText,
-    title: "Auto Fairness Report",
-    description: "PDF reports with bias detected, fixes applied, and final fairness score",
+    title: "Auto-Generated Audit Reports",
+    description: "Export full PDF compliance audits with generated descriptions of VIOLATIONS and detailed remediation paths.",
     iconBg: "bg-teal-500/10 text-teal-400",
   },
 ];

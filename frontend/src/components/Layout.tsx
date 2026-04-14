@@ -13,6 +13,9 @@ import {
   LogOut,
   Database,
   Cpu,
+  DollarSign,
+  Radio,
+  Scale,
 } from "lucide-react";
 import { Button } from "./ui/button";
 
@@ -24,6 +27,9 @@ const datasetSidebarItems = [
   { name: "Explainability", href: "/explainability", icon: BrainCircuit },
   { name: "Fairness Metrics", href: "/metrics", icon: Shield },
   { name: "Mitigation Toolkit", href: "/mitigation", icon: Zap },
+  { name: "Cost Calculator", href: "/cost-calculator", icon: DollarSign },
+  { name: "Compliance", href: "/compliance", icon: Scale },
+  { name: "Live Monitor", href: "/realtime-monitor", icon: Radio },
   { name: "Reports", href: "/reports", icon: FileText },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
@@ -34,9 +40,13 @@ const modelSidebarItems = [
   { name: "Explainability", href: "/model-explainability", icon: BrainCircuit },
   { name: "Fairness Metrics", href: "/model-metrics", icon: Shield },
   { name: "Mitigation Toolkit", href: "/model-mitigation", icon: Zap },
+  { name: "Cost Calculator", href: "/cost-calculator", icon: DollarSign },
+  { name: "Compliance", href: "/compliance", icon: Scale },
+  { name: "Live Monitor", href: "/realtime-monitor", icon: Radio },
   { name: "Reports", href: "/model-reports", icon: FileText },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
+
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);

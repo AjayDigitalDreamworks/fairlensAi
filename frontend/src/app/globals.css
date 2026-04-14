@@ -632,3 +632,51 @@ html[data-theme] body *:not(svg):not(path):not(circle):not(rect):not(line) {
   margin-top: 6px;
   flex: none;
 }
+
+/* ============================================================
+   PRINT / PDF EXPORT STYLES
+   ============================================================ */
+@media print {
+  @page {
+    size: landscape;
+    margin: 1cm;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  /* Hide UI elements that aren't for the report */
+  nav, sidebar, aside, button, .theme-toggle-btn {
+    display: none !important;
+  }
+
+  /* Make sure background colors, charts, and flex grids display */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+  
+  .card-glow, .bg-card\/40, .bg-black\/20 {
+    background: #f8fafc !important; /* light gray for print */
+    border: 1px solid #e2e8f0 !important;
+    color: black !important;
+  }
+  
+  .text-white, .text-foreground { margin:0; color: black !important; }
+  .text-muted-foreground { color: #475569 !important; }
+  .text-primary, .text-emerald-400 { color: #059669 !important; }
+  .text-red-400 { color: #dc2626 !important; }
+  .text-amber-400 { color: #d97706 !important; }
+  .text-blue-400 { color: #2563eb !important; }
+  
+  /* Prevent page breaks inside cards */
+  .card-glow, .grid {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
+
