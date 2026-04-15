@@ -1,4 +1,5 @@
 import { AnalysisPayload } from "@/types/analysis";
+import { apiFetch, withAuthToken } from "@/lib/auth";
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -19,7 +20,7 @@ async function parseError(response: Response, fallback: string): Promise<never> 
 }
 
 export async function uploadAnalysis(formData: FormData): Promise<AnalysisPayload> {
-  const response = await fetch(`${API_URL}/analyses/upload`, {
+  const response = await apiFetch(`${API_URL}/analyses/upload`, {
     method: "POST",
     body: formData,
   });
@@ -30,7 +31,7 @@ export async function uploadAnalysis(formData: FormData): Promise<AnalysisPayloa
 }
 
 export async function createMitigationPreview(analysisId: string, strategy: string): Promise<AnalysisPayload> {
-  const response = await fetch(`${API_URL}/analyses/${analysisId}/mitigation-preview`, {
+  const response = await apiFetch(`${API_URL}/analyses/${analysisId}/mitigation-preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ strategy }),
@@ -42,7 +43,7 @@ export async function createMitigationPreview(analysisId: string, strategy: stri
 }
 
 export async function generateGeminiExplanation(analysisId: string): Promise<AnalysisPayload> {
-  const response = await fetch(`${API_URL}/analyses/${analysisId}/gemini-explanation`, {
+  const response = await apiFetch(`${API_URL}/analyses/${analysisId}/gemini-explanation`, {
     method: "POST",
   });
   if (!response.ok) {
@@ -52,7 +53,7 @@ export async function generateGeminiExplanation(analysisId: string): Promise<Ana
 }
 
 export async function listAnalyses(): Promise<AnalysisPayload[]> {
-  const response = await fetch(`${API_URL}/analyses`);
+  const response = await apiFetch(`${API_URL}/analyses`);
   if (!response.ok) {
     return parseError(response, "Failed to load analyses");
   }
@@ -61,7 +62,7 @@ export async function listAnalyses(): Promise<AnalysisPayload[]> {
 }
 
 export async function deleteAnalysis(analysisId: string): Promise<{ id: string }> {
-  const response = await fetch(`${API_URL}/analyses/${analysisId}`, {
+  const response = await apiFetch(`${API_URL}/analyses/${analysisId}`, {
     method: "DELETE",
   });
   if (!response.ok) {
@@ -71,7 +72,7 @@ export async function deleteAnalysis(analysisId: string): Promise<{ id: string }
 }
 
 export async function getAnalysis(analysisId: string): Promise<AnalysisPayload> {
-  const response = await fetch(`${API_URL}/analyses/${analysisId}`);
+  const response = await apiFetch(`${API_URL}/analyses/${analysisId}`);
   if (!response.ok) {
     return parseError(response, "Failed to load analysis");
   }
@@ -79,9 +80,9 @@ export async function getAnalysis(analysisId: string): Promise<AnalysisPayload> 
 }
 
 export function getCorrectedCsvUrl(analysisId: string) {
-  return `${API_URL}/analyses/${analysisId}/corrected.csv`;
+  return withAuthToken(`${API_URL}/analyses/${analysisId}/corrected.csv`);
 }
 
 export function getPdfReportUrl(analysisId: string) {
-  return `${API_URL}/analyses/${analysisId}/report.pdf`;
+  return withAuthToken(`${API_URL}/analyses/${analysisId}/report.pdf`);
 }

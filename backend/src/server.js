@@ -52,7 +52,7 @@ app.use('/api/v1', routes);
 
 app.use((error, req, res, next) => {
   console.error(error);
-  const status = error.status || error.response?.status || 500;
+  const status = error.status || error.response?.status || (error.code === 'LIMIT_FILE_SIZE' ? 413 : 500);
   const message = error.response?.data?.detail || error.message || 'Internal server error';
   res.status(status).json({ message });
 });

@@ -9,7 +9,7 @@ import { persistArtifacts } from '../utils/reportArtifacts.js';
 
 const repo = new AnalysisRepository();
 
-export async function createAnalysis({ file, body }) {
+export async function createAnalysis({ file, body, user }) {
   try {
     await healthCheckPython();
 
@@ -27,6 +27,7 @@ export async function createAnalysis({ file, body }) {
 
     const analysis = {
       id: uuidv4(),
+      userId: user?.id,
       createdAt: new Date().toISOString(),
       input: {
         fileName: file.originalname,
@@ -57,8 +58,8 @@ export async function createAnalysis({ file, body }) {
   }
 }
 
-export async function createMitigationPreview({ analysisId, strategy }) {
-  const analysis = await repo.getById(analysisId);
+export async function createMitigationPreview({ analysisId, strategy, user }) {
+  const analysis = await repo.getById(analysisId, user?.id);
   if (!analysis) {
     const error = new Error('Analysis not found');
     error.status = 404;
@@ -90,16 +91,16 @@ export async function createMitigationPreview({ analysisId, strategy }) {
   return updated;
 }
 
-export async function listAnalyses() {
-  return await repo.list();
+export async function listAnalyses(user) {
+  return await repo.list(user?.id);
 }
 
-export async function getAnalysis(id) {
-  return await repo.getById(id);
+export async function getAnalysis(id, user) {
+  return await repo.getById(id, user?.id);
 }
 
-export async function generateAnalysisNarration(id) {
-  const analysis = await repo.getById(id);
+export async function generateAnalysisNarration(id, user) {
+  const analysis = await repo.getById(id, user?.id);
   if (!analysis) {
     const error = new Error('Analysis not found');
     error.status = 404;
@@ -148,8 +149,8 @@ export async function generateAnalysisNarration(id) {
   return analysis;
 }
 
-export async function deleteAnalysis(id) {
-  const analysis = await repo.deleteById(id);
+export async function deleteAnalysis(id, user) {
+  const analysis = await repo.deleteById(id, user?.id);
   if (!analysis) {
     const error = new Error('Analysis not found');
     error.status = 404;
@@ -160,8 +161,8 @@ export async function deleteAnalysis(id) {
   return analysis;
 }
 
-export async function getAnalysisArtifact(id, type) {
-  const analysis = await repo.getById(id);
+export async function getAnalysisArtifact(id, type, user) {
+  const analysis = await repo.getById(id, user?.id);
   if (!analysis) {
     const error = new Error('Analysis not found');
     error.status = 404;

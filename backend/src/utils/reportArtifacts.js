@@ -3,10 +3,17 @@ import path from 'path';
 import { env } from '../config/env.js';
 
 export function persistArtifacts(analysis) {
-  const artifactsDir = path.join(env.dataDir, 'artifacts', analysis.id);
+  const artifactsRoot = path.resolve(env.dataDir, 'artifacts');
+  const safeAnalysisId = sanitizePathSegment(analysis.id);
+  const artifactsDir = path.resolve(artifactsRoot, safeAnalysisId);
+
+  if (!artifactsDir.startsWith(`${artifactsRoot}${path.sep}`)) {
+    throw new Error('Invalid analysis artifact path.');
+  }
+
   fs.mkdirSync(artifactsDir, { recursive: true });
 
-  const baseName = analysis.input.fileName.replace(/\.[^.]+$/, '') || analysis.id;
+  const baseName = sanitizePathSegment(analysis.input.fileName.replace(/\.[^.]+$/, '') || analysis.id);
   const correctedFileName = `${baseName}-corrected.csv`;
   const correctedFilePath = path.join(artifactsDir, correctedFileName);
   fs.writeFileSync(correctedFilePath, analysis.result.corrected_csv || '', 'utf8');
@@ -23,8 +30,20 @@ export function persistArtifacts(analysis) {
   };
 }
 
+function sanitizePathSegment(value) {
+  return String(value || 'artifact')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\.+/g, '.')
+    .replace(/^\.+|\.+$/g, '')
+    .slice(0, 160) || 'artifact';
+}
+
 function buildReportLines(analysis) {
-  const report = analysis.result.report_markdown || analysis.result.explanation.executive_summary || 'FairAI Audit Report';
+  const report =
+    analysis.result?.report_markdown ||
+    analysis.result?.explanation?.executive_summary ||
+    analysis.result?.explanation_summary ||
+    'FairAI Audit Report';
   return report.split(/\r?\n/).flatMap((line) => wrapLine(line, 88));
 }
 

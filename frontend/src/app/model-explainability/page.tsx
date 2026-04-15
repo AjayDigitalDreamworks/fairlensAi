@@ -5,6 +5,7 @@ import { Brain, Layers, Search, BarChart3, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 import { useState, useEffect } from "react";
+import { apiFetch } from "@/lib/auth";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1").replace(/\/$/, "");
 
@@ -18,7 +19,7 @@ export default function ModelExplainabilityPage() {
   useEffect(() => {
     async function checkLatest() {
       try {
-        const res = await fetch(`${API_URL}/fairsight/history`);
+        const res = await apiFetch(`${API_URL}/fairsight/history`);
         if (res.ok) {
           const data = await res.json();
           if (data.items && data.items.length > 0) {
@@ -36,7 +37,7 @@ export default function ModelExplainabilityPage() {
     setLoading(true);
     try {
       // Step 1: Get the latest session from history
-      const histRes = await fetch(`${API_URL}/fairsight/history`);
+      const histRes = await apiFetch(`${API_URL}/fairsight/history`);
       if (!histRes.ok) throw new Error("Could not fetch history");
       const histData = await histRes.json();
       
@@ -50,7 +51,7 @@ export default function ModelExplainabilityPage() {
       setLatestModel(latest.modelName);
 
       // Step 2: Request explainability for this session
-      const explainRes = await fetch(`${API_URL}/fairsight/explain`, {
+      const explainRes = await apiFetch(`${API_URL}/fairsight/explain`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

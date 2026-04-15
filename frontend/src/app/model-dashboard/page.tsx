@@ -17,6 +17,7 @@ import {
   Line,
 } from "recharts";
 import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/auth";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1").replace(/\/$/, "");
 
@@ -27,7 +28,7 @@ export default function ModelDashboardPage() {
   useEffect(() => {
     async function loadHistory() {
       try {
-        const res = await fetch(`${API_URL}/fairsight/history`);
+        const res = await apiFetch(`${API_URL}/fairsight/history`);
         if (!res.ok) throw new Error("Failed to load history");
         const data = await res.json();
         setHistory(data.items || []);

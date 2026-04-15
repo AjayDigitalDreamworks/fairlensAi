@@ -1,12 +1,12 @@
 "use client";
 
 import Layout from "@/components/Layout";
-import { useEffect, useState, useCallback } from "react";
+import { Component, useEffect, useState, useCallback, type ErrorInfo, type ReactNode } from "react";
 import { getDemoData, runCounterfactual, attributeBias, formatDollar } from "@/lib/compliance-api";
+import { adaptAnalysisToComplianceDemo } from "@/lib/compliance-adapter";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   RadarChart, PolarGrid, PolarAngleAxis, Radar, Cell, Legend,
-  ScatterChart, Scatter, ZAxis,
 } from "recharts";
 import {
   Shield, ShieldCheck, ShieldAlert, AlertTriangle, CheckCircle2,
@@ -32,21 +32,10 @@ export default function ComplianceDashboardPage() {
       let demoDataMerged = null;
 
       if (history && history.length > 0) {
-        const latest = history[history.length - 1]; // Use latest DB audit
-        const rep = latest.detectReport;
-        
-        if (rep) {
-            demoDataMerged = {
-                metrics: {
-                  disparate_impact: rep.dpd || 0.72,
-                  dpd: rep.dpd || 0.18,
-                  eod: rep.eod || 0.15,
-                  fairness_score: (rep.performance?.accuracy || 0.87) * 100,
-                  accuracy: rep.performance?.accuracy || 0.87
-                },
-                violations: rep.compliance || null,
-                group_metrics: rep.by_group || [],
-            };
+        try {
+          demoDataMerged = adaptAnalysisToComplianceDemo(history[0], d);
+        } catch (adapterError) {
+          console.warn("Latest analysis could not be mapped to compliance demo data:", adapterError);
         }
       }
 
@@ -129,11 +118,11 @@ export default function ComplianceDashboardPage() {
     );
   }
 
-  const violations = demoData?.violations?.violations || [];
-  const compliant = demoData?.violations?.compliant || [];
-  const groups = demoData?.group_metrics || [];
-  const scenarios = counterfactual?.scenarios || [];
-  const sources = biasAttrib?.sources || [];
+  const violations = asArray(demoData?.violations?.violations).filter(Boolean);
+  const compliant = asArray(demoData?.violations?.compliant).filter(Boolean);
+  const groups = asArray(demoData?.group_metrics).filter(Boolean);
+  const scenarios = asArray(counterfactual?.scenarios).filter(Boolean);
+  const sources = asArray(biasAttrib?.sources).filter(Boolean);
 
   // Radar data for group comparison
   const radarData = groups.length > 0 ? [
@@ -266,34 +255,41 @@ export default function ComplianceDashboardPage() {
             <h3 className="text-sm font-semibold uppercase tracking-wide text-white mb-1">Group Fairness Comparison</h3>
             <p className="text-xs text-muted-foreground mb-4">Selection rate, TPR, accuracy, and 1-FPR across groups</p>
             <div className="h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={radarData}>
-                  <PolarGrid stroke="rgba(255,255,255,0.05)" />
-                  <PolarAngleAxis dataKey="metric" tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} />
-                  {groups.map((g: any, i: number) => (
-                    <Radar key={g.group} name={g.group} dataKey={g.group} stroke={["#3b82f6", "#ef4444", "#f59e0b", "#10b981"][i % 4]} fill={["#3b82f6", "#ef4444", "#f59e0b", "#10b981"][i % 4]} fillOpacity={0.1} strokeWidth={2} />
-                  ))}
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={{ background: "#111", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
-                </RadarChart>
-              </ResponsiveContainer>
+              <ChartErrorBoundary>
+                {groups.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart data={radarData}>
+                      <PolarGrid stroke="rgba(255,255,255,0.05)" />
+                      <PolarAngleAxis dataKey="metric" tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} />
+                      {groups.map((g: any, i: number) => (
+                        <Radar key={g.group || i} name={g.group || `Group ${i + 1}`} dataKey={g.group} stroke={["#3b82f6", "#ef4444", "#f59e0b", "#10b981"][i % 4]} fill={["#3b82f6", "#ef4444", "#f59e0b", "#10b981"][i % 4]} fillOpacity={0.1} strokeWidth={2} />
+                      ))}
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Tooltip contentStyle={{ background: "#111", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyChartState message="No group metrics available for this audit yet." />
+                )}
+              </ChartErrorBoundary>
             </div>
           </div>
         </div>
 
         {/* Hiring Funnel (Hiring domain only) */}
-        {domain === "hiring" && hiringFunnel && (
+        {domain === "hiring" && isValidHiringFunnel(hiringFunnel) && (
           <div className="card-glow p-6">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-white mb-1">
               <span className="flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Hiring Funnel Analysis</span>
             </h3>
             <p className="text-xs text-muted-foreground mb-6">Conversion rates at each hiring stage by group — identifies funnel leakage points</p>
             <div className="h-[280px]">
+              <ChartErrorBoundary>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={hiringFunnel.stages.map((stage: string, idx: number) => ({
+                  data={asArray<string>(hiringFunnel.stages).map((stage: string, idx: number) => ({
                     stage,
-                    ...Object.fromEntries(Object.entries(hiringFunnel.data).map(([group, vals]: [string, any]) => [group, vals[idx]])),
+                    ...Object.fromEntries(Object.entries(hiringFunnel.data || {}).map(([group, vals]: [string, any]) => [group, asArray(vals)[idx] ?? 0])),
                   }))}
                   margin={{ top: 10, right: 30, left: 10, bottom: 5 }}
                 >
@@ -301,12 +297,13 @@ export default function ComplianceDashboardPage() {
                   <XAxis dataKey="stage" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={{ background: "#111", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
-                  {Object.keys(hiringFunnel.data).map((group: string, i: number) => (
+                  {Object.keys(hiringFunnel.data || {}).map((group: string, i: number) => (
                     <Bar key={group} dataKey={group} fill={["#3b82f6", "#ef4444", "#f59e0b"][i % 3]} radius={[4, 4, 0, 0]} />
                   ))}
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                 </BarChart>
               </ResponsiveContainer>
+              </ChartErrorBoundary>
             </div>
           </div>
         )}
@@ -355,19 +352,25 @@ export default function ComplianceDashboardPage() {
 
           {/* Scenario comparison bar chart */}
           <div className="h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={scenarios.map((s: any) => ({ name: s.name, cost: s.projected_annual_exposure || 0 }))}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
-                <XAxis dataKey="name" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatDollar(v)} />
-                <Tooltip formatter={(v: number) => formatDollar(v)} contentStyle={{ background: "#111", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
-                <Bar dataKey="cost" name="Annual Exposure" radius={[6, 6, 0, 0]}>
-                  {scenarios.map((_: any, i: number) => (
-                    <Cell key={i} fill={scenarioColors[i % scenarioColors.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <ChartErrorBoundary>
+              {scenarios.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={scenarios.map((s: any) => ({ name: s.name || "Scenario", cost: s.projected_annual_exposure || 0 }))}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                    <XAxis dataKey="name" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatDollar(v)} />
+                    <Tooltip formatter={(v: number) => formatDollar(Number(v) || 0)} contentStyle={{ background: "#111", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
+                    <Bar dataKey="cost" name="Annual Exposure" radius={[6, 6, 0, 0]}>
+                      {scenarios.map((_: any, i: number) => (
+                        <Cell key={i} fill={scenarioColors[i % scenarioColors.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyChartState message="No counterfactual scenarios available yet." />
+              )}
+            </ChartErrorBoundary>
           </div>
         </div>
 
@@ -467,4 +470,40 @@ export default function ComplianceDashboardPage() {
       </div>
     </Layout>
   );
+}
+
+function asArray<T = any>(value: unknown): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function isValidHiringFunnel(value: any) {
+  return Boolean(value && Array.isArray(value.stages) && value.data && typeof value.data === "object");
+}
+
+function EmptyChartState({ message }: { message: string }) {
+  return (
+    <div className="flex h-full items-center justify-center rounded-lg border border-white/5 bg-black/20 px-4 text-center text-xs text-muted-foreground">
+      {message}
+    </div>
+  );
+}
+
+class ChartErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.warn("Compliance chart failed to render", error, info);
+  }
+
+  render() {
+    if (this.state.failed) {
+      return <EmptyChartState message="This chart could not be rendered for the current data shape." />;
+    }
+
+    return this.props.children;
+  }
 }

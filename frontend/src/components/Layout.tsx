@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3,
   BrainCircuit,
@@ -16,10 +16,15 @@ import {
   DollarSign,
   Radio,
   Scale,
+  Activity,
+  Award,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "./ui/button";
 
 import ThemeToggle from "./ThemeToggle";
+import { clearAuthSession, getStoredUser, subscribeAuthChange } from "@/lib/auth";
+import { useEffect } from "react";
 
 const datasetSidebarItems = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
@@ -29,6 +34,9 @@ const datasetSidebarItems = [
   { name: "Mitigation Toolkit", href: "/mitigation", icon: Zap },
   { name: "Cost Calculator", href: "/cost-calculator", icon: DollarSign },
   { name: "Compliance", href: "/compliance", icon: Scale },
+  { name: "Prevention", href: "/prevention", icon: ShieldCheck },
+  { name: "Simulator", href: "/simulator", icon: Activity },
+  { name: "Certification", href: "/certification", icon: Award },
   { name: "Live Monitor", href: "/realtime-monitor", icon: Radio },
   { name: "Reports", href: "/reports", icon: FileText },
   { name: "Settings", href: "/settings", icon: Settings },
@@ -42,6 +50,9 @@ const modelSidebarItems = [
   { name: "Mitigation Toolkit", href: "/model-mitigation", icon: Zap },
   { name: "Cost Calculator", href: "/cost-calculator", icon: DollarSign },
   { name: "Compliance", href: "/compliance", icon: Scale },
+  { name: "Prevention", href: "/prevention", icon: ShieldCheck },
+  { name: "Simulator", href: "/simulator", icon: Activity },
+  { name: "Certification", href: "/certification", icon: Award },
   { name: "Live Monitor", href: "/realtime-monitor", icon: Radio },
   { name: "Reports", href: "/model-reports", icon: FileText },
   { name: "Settings", href: "/settings", icon: Settings },
@@ -50,11 +61,20 @@ const modelSidebarItems = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [user, setUser] = useState(getStoredUser());
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   
   // Decide active workspace based on current path
   const isModelWorkspace = pathname.includes("model");
   const activeSidebarItems = isModelWorkspace ? modelSidebarItems : datasetSidebarItems;
+
+  useEffect(() => subscribeAuthChange(() => setUser(getStoredUser())), []);
+
+  function logout() {
+    clearAuthSession();
+    navigate("/login", { replace: true });
+  }
 
   return (
     <div className="min-h-screen flex relative">
@@ -127,6 +147,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="border-t border-border p-4 space-y-2">
           <Button
             variant="ghost"
+            onClick={logout}
             className="w-full justify-start text-muted-foreground hover:text-white hover:bg-white/5 transition-all duration-300"
           >
             <LogOut className="h-4 w-4 mr-2" />
@@ -152,7 +173,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-4">
               <ThemeToggle />
               <div className="text-sm text-muted-foreground hidden sm:block">
-                {pathname === "/analyzer"
+                {user?.email ? user.email : pathname === "/analyzer"
                   ? "Upload & analyze datasets"
                   : pathname === "/explainability"
                     ? "Model feature importance"
@@ -167,7 +188,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             : "Fairness audit dashboard"}
               </div>
               <div className="h-8 w-8 border border-primary/50 bg-primary/10 flex items-center justify-center text-primary font-bold text-xs" style={{ borderRadius: 'var(--theme-border-radius)' }}>
-                U
+                {(user?.name || user?.email || "U").slice(0, 1).toUpperCase()}
               </div>
             </div>
           </div>

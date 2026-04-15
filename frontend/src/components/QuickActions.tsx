@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { TrendingUp, CheckCircle, AlertTriangle, ArrowRight, BrainCircuit, DollarSign, Scale, Radio } from "lucide-react";
+import { TrendingUp, AlertTriangle, ArrowRight, BrainCircuit, DollarSign, Scale, Radio, ShieldCheck, Award, Activity } from "lucide-react";
 
 const actions = [
   {
@@ -29,6 +29,27 @@ const actions = [
     title: "Live Fairness Monitor",
     description: "WebSocket bias drift detection",
     accent: "primary"
+  },
+  {
+    href: "/prevention",
+    icon: ShieldCheck,
+    title: "Prevention Scanner",
+    description: "Check dataset readiness before training",
+    accent: "secondary"
+  },
+  {
+    href: "/simulator",
+    icon: Activity,
+    title: "Bias Simulator",
+    description: "Show bias impact with live controls",
+    accent: "primary"
+  },
+  {
+    href: "/certification",
+    icon: Award,
+    title: "Certification Badge",
+    description: "Create shareable fairness proof",
+    accent: "accent"
   },
   {
     href: "/explainability",

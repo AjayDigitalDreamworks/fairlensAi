@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import { Zap, Wrench, ArrowRight, Loader2, Info, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
+import { apiFetch } from "@/lib/auth";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1").replace(/\/$/, "");
 
@@ -17,7 +18,7 @@ export default function ModelMitigationPage() {
   useEffect(() => {
     async function fetchHistory() {
       try {
-        const res = await fetch(`${API_URL}/fairsight/history`);
+        const res = await apiFetch(`${API_URL}/fairsight/history`);
         if (!res.ok) throw new Error("Failed to fetch");
         const data = await res.json();
         if (data.items && data.items.length > 0) {
@@ -45,7 +46,7 @@ export default function ModelMitigationPage() {
     if (!historyItem || !selectedMethod) return;
     setMitigating(true);
     try {
-      const res = await fetch(`${API_URL}/fairsight/mitigate`, {
+      const res = await apiFetch(`${API_URL}/fairsight/mitigate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

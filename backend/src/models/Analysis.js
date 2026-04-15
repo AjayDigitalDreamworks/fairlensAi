@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 
 const AnalysisSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
+  userId: { type: String, index: true },
   createdAt: { type: Date, default: Date.now, index: true },
   updatedAt: { type: Date },
   input: {

@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import { Shield, Activity, Target, GitCompare, Loader2, Info } from "lucide-react";
 import { useState, useEffect } from "react";
 import ELI5Card from "@/components/ELI5Card";
+import { apiFetch } from "@/lib/auth";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1").replace(/\/$/, "");
 
@@ -15,7 +16,7 @@ export default function ModelMetricsPage() {
   useEffect(() => {
     async function loadMetrics() {
       try {
-        const res = await fetch(`${API_URL}/fairsight/history`);
+        const res = await apiFetch(`${API_URL}/fairsight/history`);
         if (!res.ok) throw new Error("Failed to load history");
         const data = await res.json();
         if (data.items && data.items.length > 0) {

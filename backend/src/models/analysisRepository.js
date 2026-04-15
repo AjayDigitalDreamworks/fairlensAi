@@ -1,9 +1,9 @@
 import { Analysis } from './Analysis.js';
 
 export class AnalysisRepository {
-  async list() {
+  async list(userId) {
     try {
-      const list = await Analysis.find({}, {
+      const list = await Analysis.find(userId ? { userId } : {}, {
         'result.profiling': 0,
         'result.quality_checks': 0,
         'result.model_summary': 0,
@@ -40,9 +40,9 @@ export class AnalysisRepository {
     }
   }
 
-  async getById(id) {
+  async getById(id, userId) {
     try {
-      const doc = await Analysis.findOne({ id }).lean().maxTimeMS(5000);
+      const doc = await Analysis.findOne(userId ? { id, userId } : { id }).lean().maxTimeMS(5000);
       return doc;
     } catch (err) {
       console.error(`Mongoose getById(${id}) error:`, err.message);
@@ -64,9 +64,9 @@ export class AnalysisRepository {
     }
   }
 
-  async deleteById(id) {
+  async deleteById(id, userId) {
     try {
-      const doc = await Analysis.findOneAndDelete({ id }).lean().maxTimeMS(5000);
+      const doc = await Analysis.findOneAndDelete(userId ? { id, userId } : { id }).lean().maxTimeMS(5000);
       return doc;
     } catch (err) {
       console.error(`Mongoose deleteById(${id}) error:`, err.message);

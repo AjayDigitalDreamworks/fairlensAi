@@ -1,6 +1,7 @@
 "use client";
 
 import Layout from "@/components/Layout";
+import ELI5Card from "@/components/ELI5Card";
 import { Button } from "@/components/ui/button";
 import {
   formatMetric,
@@ -418,6 +419,8 @@ export default function MetricsPage() {
                 />
               ))}
             </div>
+
+            <ELI5Card />
 
             <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
               <section className="command-panel p-8">

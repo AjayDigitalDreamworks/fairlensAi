@@ -3,12 +3,13 @@
  * Provides typed access to cost calculator, ROI, violations, counterfactual,
  * drift detection, bias attribution, and real-time monitoring via WebSocket.
  */
+import { apiFetch } from "@/lib/auth";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1";
 const ML_URL = import.meta.env.VITE_ML_URL || "http://localhost:8000";
 
 async function postJSON<T>(url: string, body: Record<string, unknown>): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -21,7 +22,7 @@ async function postJSON<T>(url: string, body: Record<string, unknown>): Promise<
 }
 
 async function getJSON<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -38,8 +39,8 @@ export async function calculateCost(params: {
   portfolio_size?: number;
   avg_transaction_value?: number;
   affected_group_pct?: number;
-}) {
-  return postJSON(`${API_URL}/compliance/cost-calculator`, params);
+}): Promise<any> {
+  return postJSON<any>(`${API_URL}/compliance/cost-calculator`, params);
 }
 
 // ─── ROI Calculator ───
@@ -57,8 +58,8 @@ export async function calculateROI(params: {
   eod_after?: number;
   fairness_score_before?: number;
   fairness_score_after?: number;
-}) {
-  return postJSON(`${API_URL}/compliance/roi`, params);
+}): Promise<any> {
+  return postJSON<any>(`${API_URL}/compliance/roi`, params);
 }
 
 // ─── Compliance Violations ───
@@ -70,8 +71,8 @@ export async function checkViolations(params: {
   eod?: number;
   fairness_score?: number;
   group_metrics?: Array<Record<string, unknown>>;
-}) {
-  return postJSON(`${API_URL}/compliance/check-violations`, params);
+}): Promise<any> {
+  return postJSON<any>(`${API_URL}/compliance/check-violations`, params);
 }
 
 // ─── Counterfactual ───
@@ -81,8 +82,8 @@ export async function runCounterfactual(params: {
   dpd?: number;
   eod?: number;
   group_metrics?: Array<Record<string, unknown>>;
-}) {
-  return postJSON(`${API_URL}/compliance/counterfactual`, params);
+}): Promise<any> {
+  return postJSON<any>(`${API_URL}/compliance/counterfactual`, params);
 }
 
 // ─── Drift Detection ───
@@ -90,8 +91,8 @@ export async function detectDrift(params: {
   historical_values: number[];
   threshold?: number;
   slack?: number;
-}) {
-  return postJSON(`${API_URL}/compliance/drift-detection`, params);
+}): Promise<any> {
+  return postJSON<any>(`${API_URL}/compliance/drift-detection`, params);
 }
 
 // ─── Bias Attribution ───
@@ -101,13 +102,13 @@ export async function attributeBias(params: {
   eod?: number;
   disparate_impact?: number;
   explainability_data?: Record<string, unknown>;
-}) {
-  return postJSON(`${API_URL}/compliance/bias-attribution`, params);
+}): Promise<any> {
+  return postJSON<any>(`${API_URL}/compliance/bias-attribution`, params);
 }
 
 // ─── Regulations lookup ───
-export async function getRegulations(domain: string) {
-  return getJSON(`${API_URL}/compliance/regulations/${domain}`);
+export async function getRegulations(domain: string): Promise<any> {
+  return getJSON<any>(`${API_URL}/compliance/regulations/${domain}`);
 }
 
 // ─── Demo data ───
@@ -122,8 +123,7 @@ export function connectFairnessMonitor(
   onError?: (error: Event) => void,
   onClose?: () => void
 ): WebSocket {
-  const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsUrl = `${wsProtocol}//localhost:8000/fairsight/compliance/ws/monitor/${domain}`;
+  const wsUrl = `${ML_URL.replace(/^http/, "ws").replace(/\/$/, "")}/fairsight/compliance/ws/monitor/${domain}`;
   const ws = new WebSocket(wsUrl);
 
   ws.onmessage = (event) => {

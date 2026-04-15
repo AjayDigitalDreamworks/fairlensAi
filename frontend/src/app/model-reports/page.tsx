@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import { FileText, Download, ShieldCheck, History, Loader2, Database, DownloadCloud } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { apiFetch, withAuthToken } from "@/lib/auth";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1").replace(/\/$/, "");
 
@@ -14,7 +15,7 @@ export default function ModelReportsPage() {
   useEffect(() => {
     async function fetchReports() {
       try {
-        const res = await fetch(`${API_URL}/fairsight/history`);
+        const res = await apiFetch(`${API_URL}/fairsight/history`);
         if (!res.ok) throw new Error("Failed to fetch reports");
         const data = await res.json();
         setReports(data.items || []);
@@ -28,11 +29,11 @@ export default function ModelReportsPage() {
   }, []);
 
   const handleDownloadReport = (sessionId: string) => {
-    window.location.href = `${API_URL}/fairsight/download-report/${sessionId}`;
+    window.location.href = withAuthToken(`${API_URL}/fairsight/download-report/${sessionId}`);
   };
 
   const handleDownloadModel = (sessionId: string) => {
-    window.location.href = `${API_URL}/fairsight/download-model/${sessionId}`;
+    window.location.href = withAuthToken(`${API_URL}/fairsight/download-model/${sessionId}`);
   };
 
   return (

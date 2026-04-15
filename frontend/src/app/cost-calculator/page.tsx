@@ -3,6 +3,7 @@
 import Layout from "@/components/Layout";
 import { useEffect, useState, useCallback } from "react";
 import { getDemoData, calculateROI, formatDollar } from "@/lib/compliance-api";
+import { adaptAnalysisToComplianceDemo } from "@/lib/compliance-adapter";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -61,27 +62,7 @@ export default function CostCalculatorPage() {
       let demoDataMerged = null;
 
       if (history && history.length > 0) {
-          const latest = history[history.length - 1]; // Grab most recently uploaded model
-          const rep = latest.detectReport;
-          const isCredit = d === "credit";
-          
-          if (rep) {
-              demoDataMerged = {
-                  domain: d,
-                  scenario: `Dynamic Audit: ${latest.modelName}`,
-                  description: `Using backend logic from ${new Date(latest.createdAt).toLocaleDateString()}`,
-                  metrics: {
-                      disparate_impact: rep.dpd || 0.72,
-                      dpd: rep.dpd || 0.18,
-                      eod: rep.eod || 0.15,
-                      fairness_score: (rep.performance?.accuracy || 0.68) * 100,
-                      accuracy: rep.performance?.accuracy || 0.87
-                  },
-                  violations: rep.compliance || { violations_found: 0, compliance_rate: 100, violations: [] },
-                  cost_exposure: rep.cost_exposure || null,
-                  roi_projection: latest.mitigationResult?.roi_projection || null,
-              };
-          }
+          demoDataMerged = adaptAnalysisToComplianceDemo(history[0], d);
       }
 
       // If DB fails to provide anything (e.g., initial load with no models), use our standard demo data route

@@ -27,7 +27,7 @@ function wrapFairsightError(error) {
   throw error;
 }
 
-export async function uploadFairsightAssets({ modelPath, modelName, csvPath, csvName }) {
+export async function uploadFairsightAssets({ modelPath, modelName, csvPath, csvName, user }) {
   try {
     const form = new FormData();
     form.append('model_file', fs.createReadStream(modelPath), modelName);
@@ -43,6 +43,7 @@ export async function uploadFairsightAssets({ modelPath, modelName, csvPath, csv
       if (data && data.session_id) {
         await ModelAnalysis.create({
           sessionId: data.session_id,
+          userId: user?.id,
           modelName: modelName,
         });
       }
@@ -56,13 +57,14 @@ export async function uploadFairsightAssets({ modelPath, modelName, csvPath, csv
   }
 }
 
-export async function detectFairsightBias(payload) {
+export async function detectFairsightBias(payload, user) {
   try {
+    await assertSessionOwner(payload.session_id, user);
     const { data } = await client.post('/fairsight/detect', payload);
     
     try {
       await ModelAnalysis.updateOne(
-        { sessionId: payload.session_id },
+        { sessionId: payload.session_id, userId: user?.id },
         { 
           labelCol: payload.label_col,
           sensitiveCol: payload.sensitive_col,
@@ -80,13 +82,14 @@ export async function detectFairsightBias(payload) {
   }
 }
 
-export async function mitigateFairsightBias(payload) {
+export async function mitigateFairsightBias(payload, user) {
   try {
+    await assertSessionOwner(payload.session_id, user);
     const { data } = await client.post('/fairsight/mitigate', payload);
 
     try {
       await ModelAnalysis.updateOne(
-        { sessionId: payload.session_id },
+        { sessionId: payload.session_id, userId: user?.id },
         { 
           mitigationResult: data,
           updatedAt: new Date()
@@ -102,8 +105,9 @@ export async function mitigateFairsightBias(payload) {
   }
 }
 
-export async function getFairsightSuggestions(payload) {
+export async function getFairsightSuggestions(payload, user) {
   try {
+    await assertSessionOwner(payload.session_id, user);
     const { data } = await client.post('/fairsight/gemini-suggestions', payload);
     return data;
   } catch (error) {
@@ -111,8 +115,9 @@ export async function getFairsightSuggestions(payload) {
   }
 }
 
-export async function getFairsightExplain(payload) {
+export async function getFairsightExplain(payload, user) {
   try {
+    await assertSessionOwner(payload.session_id, user);
     const { data } = await client.post('/fairsight/explain', payload);
     return data;
   } catch (error) {
@@ -121,8 +126,9 @@ export async function getFairsightExplain(payload) {
 }
 
 
-export async function downloadFairsightModel(sessionId) {
+export async function downloadFairsightModel(sessionId, user) {
   try {
+    await assertSessionOwner(sessionId, user);
     const response = await client.get(`/fairsight/download-model/${sessionId}`, {
       responseType: 'stream'
     });
@@ -132,8 +138,9 @@ export async function downloadFairsightModel(sessionId) {
   }
 }
 
-export async function downloadFairsightReport(sessionId) {
+export async function downloadFairsightReport(sessionId, user) {
   try {
+    await assertSessionOwner(sessionId, user);
     const response = await client.get(`/fairsight/download-report/${sessionId}`, {
       responseType: 'stream'
     });
@@ -143,13 +150,29 @@ export async function downloadFairsightReport(sessionId) {
   }
 }
 
-export async function getFairsightHistory() {
+export async function getFairsightHistory(user) {
   try {
-    const history = await ModelAnalysis.find().sort({ createdAt: -1 }).maxTimeMS(5000).lean();
+    const history = await ModelAnalysis.find(user?.id ? { userId: user.id } : {}).sort({ createdAt: -1 }).maxTimeMS(5000).lean();
     return history;
   } catch (error) {
     console.error('Failed to fetch model analysis history:', error.message);
     return [];
   }
+}
+
+async function assertSessionOwner(sessionId, user) {
+  if (!sessionId || !user?.id) {
+    const error = new Error('Model session is required.');
+    error.status = 400;
+    throw error;
+  }
+
+  const session = await ModelAnalysis.findOne({ sessionId, userId: user.id }).lean().maxTimeMS(5000);
+  if (!session) {
+    const error = new Error('Model session not found for this account.');
+    error.status = 404;
+    throw error;
+  }
+  return session;
 }
 

@@ -22,6 +22,7 @@ import {
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import ReactMarkdown from 'react-markdown';
+import { apiFetch, withAuthToken } from "@/lib/auth";
 
 const liveStages = [
   "Model file received",
@@ -92,7 +93,7 @@ export default function ModelAnalyzer() {
       formData.append("model_file", file);
       formData.append("csv_file", csvFile);
 
-      const res = await fetch(`${API_URL}/fairsight/upload`, {
+      const res = await apiFetch(`${API_URL}/fairsight/upload`, {
         method: "POST",
         body: formData,
       });
@@ -131,7 +132,7 @@ export default function ModelAnalyzer() {
     setError("");
 
     try {
-      const detectRes = await fetch(`${API_URL}/fairsight/detect`, {
+      const detectRes = await apiFetch(`${API_URL}/fairsight/detect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -162,7 +163,7 @@ export default function ModelAnalyzer() {
     setIsMitigating(true);
     setError("");
     try {
-      const res = await fetch(`${API_URL}/fairsight/mitigate`, {
+      const res = await apiFetch(`${API_URL}/fairsight/mitigate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -187,7 +188,7 @@ export default function ModelAnalyzer() {
   async function onGetSuggestions() {
     setIsLoadingGemini(true);
     try {
-      const res = await fetch(`${API_URL}/fairsight/gemini-suggestions`, {
+      const res = await apiFetch(`${API_URL}/fairsight/gemini-suggestions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -514,7 +515,7 @@ export default function ModelAnalyzer() {
                           variant="outline" 
                           className="flex-1 border-primary/50 text-white hover:bg-primary/20"
                         >
-                          <a href={`${API_URL}/fairsight/download-model/${sessionId}`} download>
+                          <a href={withAuthToken(`${API_URL}/fairsight/download-model/${sessionId}`)} download>
                             <Download className="mr-2 h-4 w-4" /> Download Wrapped Model
                           </a>
                         </Button>
@@ -523,7 +524,7 @@ export default function ModelAnalyzer() {
                           variant="outline" 
                           className="flex-1 border-secondary/50 text-white hover:bg-secondary/20"
                         >
-                          <a href={`${API_URL}/fairsight/download-report/${sessionId}`} download>
+                          <a href={withAuthToken(`${API_URL}/fairsight/download-report/${sessionId}`)} download>
                             <Download className="mr-2 h-4 w-4" /> Export Report (JSON)
                           </a>
                         </Button>
@@ -546,7 +547,7 @@ export default function ModelAnalyzer() {
                   variant="outline" 
                   className="border-primary/50 text-white hover:bg-primary/20"
                 >
-                  <a href={`${API_URL}/fairsight/download-report/${sessionId}`} download>
+                  <a href={withAuthToken(`${API_URL}/fairsight/download-report/${sessionId}`)} download>
                     <Download className="mr-2 h-4 w-4" /> Export Verification Report
                   </a>
                 </Button>

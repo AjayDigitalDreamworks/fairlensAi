@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { env } from '../config/env.js';
 
-const ML_URL = env.mlServiceUrl || 'http://localhost:8000';
+const ML_URL = env.pythonServiceUrl || 'http://localhost:8000';
 
 export async function calculateCost(payload) {
   const res = await axios.post(`${ML_URL}/fairsight/compliance/cost-calculator`, payload, { timeout: 30000 });

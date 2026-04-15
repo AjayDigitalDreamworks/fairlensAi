@@ -124,6 +124,9 @@ docker-compose.override.yml
 
 sample_data
 .env.example
+!backend/.env.example
+!frontend/.env.example
+!ml-service/.env.example
 ml-service.zip
 datasets
 REBUILD_PLAN.md

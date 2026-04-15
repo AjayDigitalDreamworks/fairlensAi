@@ -1,6 +1,6 @@
 "use client";
 
-import { Shield, Zap, BarChart3, AlertCircle, FileText, DollarSign, Scale, Radio } from "lucide-react";
+import { Zap, AlertCircle, FileText, DollarSign, Scale, Radio, ShieldCheck, Award, Activity } from "lucide-react";
 
 const features = [
   {
@@ -22,6 +22,18 @@ const features = [
     iconBg: "bg-emerald-400/10 text-emerald-300",
   },
   {
+    icon: ShieldCheck,
+    title: "Pre-Training Prevention",
+    description: "Scan representation, proxy features, and subgroup support BEFORE training locks bias into the model.",
+    iconBg: "bg-teal-500/10 text-teal-400",
+  },
+  {
+    icon: Activity,
+    title: "Interactive Bias Simulator",
+    description: "Show stakeholders how hidden model bias changes real approval outcomes with live controls.",
+    iconBg: "bg-emerald-500/10 text-emerald-400",
+  },
+  {
     icon: Zap,
     title: "One-Click Bias Mitigation",
     description: "Automatically apply threshold optimization or reweighing to drastically improve FAIRNESS without sacrificing ACCURACY.",
@@ -39,6 +51,12 @@ const features = [
     description: "Export full PDF compliance audits with generated descriptions of VIOLATIONS and detailed remediation paths.",
     iconBg: "bg-teal-500/10 text-teal-400",
   },
+  {
+    icon: Award,
+    title: "Certification Badges",
+    description: "Generate shareable proof that fairness criteria, documentation, and explainability checks passed.",
+    iconBg: "bg-emerald-400/10 text-emerald-300",
+  },
 ];
 
 export default function Features() {
@@ -51,7 +69,7 @@ export default function Features() {
             Complete Fairness Suite
           </h2>
           <p className="text-xs font-mono uppercase tracking-[0.4em] text-muted-foreground opacity-60">
-             6 powerful tools to detect, measure, and fix bias automatically...
+             9 powerful tools to detect, measure, prevent, and certify fairness...
           </p>
         </div>
 
