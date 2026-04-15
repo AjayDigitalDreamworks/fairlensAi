@@ -10,55 +10,55 @@
   [data-theme="emerald"] {
     --font-space-grotesk: "Space Grotesk";
     --font-space-mono: "Space Mono";
-    --background: 240 10% 4%;
+    --background: 30 18% 9%; /* Mahogany Dark */
     --foreground: 0 0% 100%;
-    --card: 240 10% 6%;
+    --card: 30 15% 12%; 
     --card-foreground: 0 0% 90%;
-    --popover: 240 10% 6%;
+    --popover: 30 15% 12%;
     --popover-foreground: 0 0% 100%;
-    --primary: 150 100% 50%;
-    --primary-foreground: 150 100% 5%;
-    --secondary: 142 100% 50%;
-    --secondary-foreground: 142 100% 5%;
-    --muted: 240 5% 15%;
-    --muted-foreground: 240 5% 70%;
-    --accent: 150 100% 50%;
+    --primary: 42 49% 58%; /* Legal Gold */
+    --primary-foreground: 30 20% 5%;
+    --secondary: 0 100% 27%; /* Gavel Red / Mahogany */
+    --secondary-foreground: 0 0% 100%;
+    --muted: 30 10% 20%;
+    --muted-foreground: 30 10% 70%;
+    --accent: 42 49% 58%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 10% 15%;
-    --input: 240 10% 10%;
-    --ring: 150 100% 50%;
+    --border: 30 15% 20%;
+    --input: 30 15% 15%;
+    --ring: 42 49% 58%;
     --radius: 0px;
 
     --font-heading: var(--font-space-grotesk), sans-serif;
     --font-mono: var(--font-space-mono), monospace;
 
     /* Theme-specific custom properties */
-    --theme-glow: 16 185 129;
-    --theme-glow-alt: 52 211 153;
-    --theme-accent-hex: #10b981;
-    --theme-accent-alt-hex: #34d399;
-    --theme-gradient: linear-gradient(to right, #10b981, #34d399, #14b8a6);
+    --theme-glow: 201 169 97; /* #C9A961 RGB */
+    --theme-glow-alt: 139 0 0; /* #8B0000 RGB */
+    --theme-accent-hex: #C9A961;
+    --theme-accent-alt-hex: #8B0000;
+    --theme-gradient: linear-gradient(to right, #C9A961, #E8CD91, #C9A961);
     --theme-border-radius: 0px;
-    --theme-card-border: rgba(16, 185, 129, 0.1);
-    --theme-card-glow: rgba(16, 185, 129, 0.05);
-    --theme-scan-color: rgba(16, 185, 129, 0.3);
-    --theme-bg-grid-color: rgba(16, 185, 129, 0.05);
+    --theme-card-border: rgba(201, 169, 97, 0.15);
+    --theme-card-glow: rgba(201, 169, 97, 0.05);
+    --theme-scan-color: rgba(201, 169, 97, 0.2);
+    --theme-bg-grid-color: rgba(201, 169, 97, 0.05);
   }
 
   .dark {
-    --background: 240 10% 4%;
+    --background: 30 18% 9%;
     --foreground: 0 0% 100%;
-    --card: 240 10% 6%;
+    --card: 30 15% 12%;
     --card-foreground: 0 0% 90%;
-    --primary: 150 100% 50%;
-    --primary-foreground: 150 100% 5%;
-    --secondary: 142 100% 50%;
-    --secondary-foreground: 142 100% 5%;
-    --muted-foreground: 240 5% 75%;
-    --border: 240 10% 15%;
-    --ring: 150 100% 50%;
+    --primary: 42 49% 58%;
+    --primary-foreground: 30 20% 5%;
+    --secondary: 0 100% 27%;
+    --secondary-foreground: 0 0% 100%;
+    --muted-foreground: 30 10% 75%;
+    --border: 30 15% 20%;
+    --ring: 42 49% 58%;
   }
 }
 
@@ -655,7 +655,7 @@ html[data-theme] body *:not(svg):not(path):not(circle):not(rect):not(line) {
   /* Make sure background colors, charts, and flex grids display */
   * {
     -webkit-print-color-adjust: exact !important;
-    color-adjust: exact !important;
+    print-color-adjust: exact !important;
     text-shadow: none !important;
     box-shadow: none !important;
   }

@@ -18,6 +18,7 @@ import ModelReportsPage from "@/app/model-reports/page";
 import CostCalculatorPage from "@/app/cost-calculator/page";
 import ComplianceDashboardPage from "@/app/compliance/page";
 import RealtimeMonitorPage from "@/app/realtime-monitor/page";
+import SimulatorPage from "@/app/simulator/page";
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/cost-calculator" element={<CostCalculatorPage />} />
         <Route path="/compliance" element={<ComplianceDashboardPage />} />
         <Route path="/realtime-monitor" element={<RealtimeMonitorPage />} />
+        <Route path="/simulator" element={<SimulatorPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster position="bottom-right" theme="dark" />

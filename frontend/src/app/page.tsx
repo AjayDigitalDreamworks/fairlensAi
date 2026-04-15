@@ -8,6 +8,7 @@ import TrustBadges from "@/components/TrustBadges";
 import Benefits from "@/components/Benefits";
 import CTA from "@/components/CTA";
 import Footer from "@/components/Footer";
+import BiasStoryTimeline from "@/components/BiasStoryTimeline";
 
 export default function Index() {
   return (
@@ -30,6 +31,9 @@ export default function Index() {
       <div className="relative z-10">
         <Navbar />
         <Hero />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 mb-20">
+           <BiasStoryTimeline />
+        </div>
         <TrustBadges />
         <Features />
         <HowItWorks />

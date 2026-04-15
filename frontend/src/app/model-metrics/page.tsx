@@ -3,6 +3,7 @@
 import Layout from "@/components/Layout";
 import { Shield, Activity, Target, GitCompare, Loader2, Info } from "lucide-react";
 import { useState, useEffect } from "react";
+import ELI5Card from "@/components/ELI5Card";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:4000/api/v1").replace(/\/$/, "");
 
@@ -106,6 +107,10 @@ export default function ModelMetricsPage() {
                 status={dpStatus}
                 desc="Absolute difference in positive prediction rates regardless of true outcome."
               />
+            </div>
+            
+            <div className="animate-in fade-in slide-in-from-bottom-5">
+              <ELI5Card />
             </div>
 
             <div className="card-glow flex flex-col rounded-xl p-8 min-h-[300px] animate-in fade-in slide-in-from-bottom-6">

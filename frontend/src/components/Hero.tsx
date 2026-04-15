@@ -15,33 +15,33 @@ export default function Hero() {
         <div className="lg:grid lg:grid-cols-12 lg:gap-16 items-center">
           {/* Left Column: Text Content */}
           <div className="lg:col-span-6 space-y-8 text-center lg:text-left">
-            <div className="inline-flex items-center rounded-none border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-[10px] font-black font-mono text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-colors hover:bg-emerald-500/20 cursor-default animate-float uppercase tracking-widest">
-              <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
-              Financial Compliance Copilot for AI Systems
+            <div className="inline-flex items-center rounded-none border border-[#C9A961]/30 bg-[#C9A961]/10 px-4 py-1.5 text-[10px] font-black font-mono text-[#C9A961] shadow-[0_0_15px_rgba(201,169,97,0.3)] transition-colors hover:bg-[#C9A961]/20 cursor-default animate-float uppercase tracking-widest">
+              <span className="flex h-1.5 w-1.5 rounded-full bg-[#C9A961] mr-2 animate-pulse"></span>
+              Legal Insurance For Your AI Models
             </div>
 
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white leading-[1.1]">
-              Turn AI Bias Into
+              Stop Your AI From
               <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-emerald-300 to-emerald-400 animate-gradient-x">
-                Dollar-Denominated Risk
+              <span className="text-transparent bg-clip-text bg-[#C9A961] animate-gradient-x drop-shadow-md">
+                Getting Sued
               </span>
             </h1>
 
             <p className="max-w-2xl mx-auto lg:mx-0 text-lg sm:text-xl text-muted-foreground/90 font-mono text-sm leading-relaxed uppercase tracking-tighter opacity-80">
-              $500M+ is lost annually to AI bias lawsuits. FairSight AI monitors your models in real-time, maps bias directly to ECOA & EEOC regulations, and fixes violations in one click.
+              The $2M mistake you haven't made yet. We prevent lawsuits by detecting bias 3 months before deployment, translating it to dollars lawyers understand, and certifying your model court-ready.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start pt-4">
-              <Button asChild size="lg" className="bg-emerald-500 text-black font-bold uppercase tracking-[0.3em] text-[10px] px-10 py-8 rounded-none shadow-[0_0_30px_rgba(16,185,129,0.3)] hover:brightness-110 transition-all border border-emerald-400">
-                <Link to="/cost-calculator">
-                  Calculate Your Risk
+              <Button asChild size="lg" className="bg-[#8B0000] text-white font-bold uppercase tracking-[0.3em] text-[10px] px-10 py-8 rounded-none shadow-[0_0_30px_rgba(139,0,0,0.4)] hover:brightness-110 transition-all border border-red-500">
+                <Link to="/simulator">
+                  Test the $2M Risk Simulator
                   <ArrowRight className="h-4 w-4 ml-3" />
                 </Link>
               </Button>
-              <Button asChild size="lg" variant="outline" className="border-emerald-500/30 text-white font-mono text-[10px] uppercase font-black px-10 py-8 rounded-none hover:bg-emerald-500/10 transition-all">
-                <Link to="/realtime-monitor">
-                  View Live Monitor
+              <Button asChild size="lg" variant="outline" className="border-[#C9A961]/30 text-[#C9A961] font-mono text-[10px] uppercase font-black px-10 py-8 rounded-none hover:bg-[#C9A961]/10 transition-all">
+                <Link to="/compliance">
+                  Generate Legal Report
                 </Link>
               </Button>
             </div>

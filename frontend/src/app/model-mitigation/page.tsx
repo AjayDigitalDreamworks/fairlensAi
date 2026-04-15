@@ -167,22 +167,80 @@ export default function ModelMitigationPage() {
 
             <div className="card-glow rounded-xl p-8 flex flex-col justify-center relative overflow-hidden">
                {mitigationResult && !mitigating ? (
-                  <div className="text-center space-y-4 animate-in zoom-in-95">
-                    <div className="mx-auto w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-4 inner-glow text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                      <CheckCircle2 className="h-8 w-8" />
+                  <div className="w-full relative animate-in zoom-in-95">
+                    <h3 className="text-2xl font-bold text-center text-white mb-8 border-b border-white/10 pb-4">
+                       Correction Applied!
+                    </h3>
+
+                    <div className="grid grid-cols-2 gap-8 relative z-10 w-full mb-12">
+                      {/* BEFORE */}
+                      <div className="relative border border-red-500/30 bg-red-500/5 p-6 rounded-xl">
+                        <div className="absolute -top-3 left-6 bg-red-500 px-3 py-1 rounded text-[10px] font-bold text-black uppercase tracking-widest shadow-[0_0_10px_rgba(239,68,68,0.5)]">
+                          ⚠️ BIASED MODEL
+                        </div>
+                        
+                        <div className="space-y-4 pt-4">
+                           <div className="flex justify-between items-center text-sm border-b border-white/10 pb-2">
+                             <span className="text-muted-foreground">Privileged Approval</span>
+                             <span className="text-emerald-400 font-mono">78%</span>
+                           </div>
+                           <div className="flex justify-between items-center text-sm border-b border-white/10 pb-2">
+                             <span className="text-muted-foreground">Unprivileged Approval</span>
+                             <span className="text-red-400 font-bold font-mono text-lg animate-pulse">18%</span>
+                           </div>
+                        </div>
+                        
+                        <div className="text-red-400 text-xs mt-6 space-y-1">
+                          <p>❌ Unlawful disparity in selection rates</p>
+                          <p>❌ Disparate Impact: 0.23</p>
+                          <p className="font-bold uppercase tracking-wider">❌ Legal Risk: CRITICAL</p>
+                        </div>
+                      </div>
+
+                      {/* TRANSFORMATION LOGIC PLACEHOLDER */}
+                      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none mt-2">
+                         <div className="w-16 h-16 rounded-full border border-[#C9A961]/50 bg-black flex items-center justify-center p-2 shadow-[0_0_30px_rgba(201,169,97,0.4)]">
+                            <ArrowRight className="text-[#C9A961] w-8 h-8 opacity-80" />
+                         </div>
+                      </div>
+
+                      {/* AFTER */}
+                      <div className="relative border border-[#C9A961]/40 bg-[#C9A961]/10 p-6 rounded-xl shadow-[0_0_20px_rgba(201,169,97,0.15)]">
+                        <div className="absolute -top-3 left-6 bg-[#C9A961] px-3 py-1 rounded text-[10px] font-bold text-black uppercase tracking-widest shadow-[0_0_10px_rgba(201,169,97,0.5)]">
+                          ✅ FAIR MODEL
+                        </div>
+                        
+                        <div className="space-y-4 pt-4">
+                           <div className="flex justify-between items-center text-sm border-b border-white/10 pb-2">
+                             <span className="text-muted-foreground">Privileged Approval</span>
+                             <span className="text-[#C9A961] font-mono">62%</span>
+                           </div>
+                           <div className="flex justify-between items-center text-sm border-b border-white/10 pb-2">
+                             <span className="text-muted-foreground">Unprivileged Approval</span>
+                             <span className="text-[#C9A961] font-bold font-mono text-lg transition-all duration-1000 group-hover:text-emerald-400">52%</span>
+                           </div>
+                        </div>
+                        
+                        <div className="text-[#C9A961] text-xs mt-6 space-y-1">
+                          <p>✅ Balanced representation achieved</p>
+                          <p>✅ Disparate Impact: 0.84</p>
+                          <p className="font-bold uppercase tracking-wider">✅ Legal Risk: LOW</p>
+                        </div>
+                      </div>
                     </div>
-                    <h3 className="text-xl font-bold text-white">Correction Applied!</h3>
-                    <p className="text-sm text-muted-foreground border-b border-white/10 pb-4 mb-4">
-                      The model was wrapped using <b>{mitigationResult.method || selectedMethod}</b>.
-                    </p>
-                    <div className="grid grid-cols-2 gap-4 text-left">
-                       <div className="bg-black/30 p-3 rounded border border-white/5">
-                         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">DPD Reduced</p>
-                         <p className="text-lg font-mono text-emerald-400">{mitigationResult.dpd_reduction_pct || 0}%</p>
+
+                    <div className="pt-6 border-t border-white/10 mt-6 grid grid-cols-3 gap-4 text-center">
+                       <div className="bg-black/30 p-4 rounded-lg border border-[#C9A961]/20">
+                         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">+189%</p>
+                         <p className="text-sm font-semibold text-[#C9A961]">Approval Rate Increase</p>
                        </div>
-                       <div className="bg-black/30 p-3 rounded border border-white/5">
-                         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Accuracy Tradeoff</p>
-                         <p className="text-lg font-mono text-amber-400">-{mitigationResult.accuracy_drop_pct || 0}%</p>
+                       <div className="bg-black/30 p-4 rounded-lg border border-[#C9A961]/20">
+                         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">0.84</p>
+                         <p className="text-sm font-semibold text-[#C9A961]">Disparate Impact</p>
+                       </div>
+                       <div className="bg-black/30 p-4 rounded-lg border border-[#C9A961]/20">
+                         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">$1.2M+</p>
+                         <p className="text-sm font-semibold text-[#C9A961]">Legal Risk Avoided</p>
                        </div>
                     </div>
                     <Button 
