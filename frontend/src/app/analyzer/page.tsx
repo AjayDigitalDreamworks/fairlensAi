@@ -282,6 +282,9 @@ export default function DatasetAnalyzer() {
                         <Link to="/explainability">Open explanations</Link>
                       </Button>
                       <Button asChild variant="outline" className="border-white/10 text-white hover:bg-white/5">
+                      <Link to={`/simulator?bias=${Math.round((analysis.result?.fairness_summary?.disparate_impact || 0) * 100)}&attribute=${encodeURIComponent(worstFinding?.sensitive_column || "Attribute")}`}>Simulate Impact</Link>
+                      </Button>
+                      <Button asChild variant="outline" className="border-white/10 text-white hover:bg-white/5">
                         <Link to="/reports">Open report</Link>
                       </Button>
                     </div>

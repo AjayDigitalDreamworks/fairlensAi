@@ -15,6 +15,8 @@ import {
 import { listAnalyses } from "@/lib/api";
 import { loadAnalysisHistory } from "@/lib/analysis-store";
 import type { AnalysisPayload } from "@/types/analysis";
+import BiasBeforeAfter, { BiasSlice } from "@/components/BiasBeforeAfter";
+import { ELI5ModeToggle, ELI5Tooltip, TermBadge } from "@/components/ELI5Tooltip";
 import {
   Area,
   AreaChart,
@@ -22,8 +24,6 @@ import {
   Bar,
   CartesianGrid,
   Cell,
-  Line,
-  LineChart,
   PolarAngleAxis,
   PolarGrid,
   Radar,
@@ -33,13 +33,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Plus } from "lucide-react";
+import { Plus, Activity, ArrowRight, Database, Cpu } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
 export default function DashboardPage() {
   const [analyses, setAnalyses] = useState<AnalysisPayload[]>([]);
   const [loading, setLoading] = useState(true);
+  const [eli5Mode, setEli5Mode] = useState(false);
 
   useEffect(() => {
     async function hydrate() {
@@ -80,30 +81,126 @@ export default function DashboardPage() {
           <div className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-primary via-secondary to-primary shadow-[0_0_15px_rgba(var(--theme-glow),0.3)]" />
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 className="mb-2 font-sans text-3xl font-bold tracking-tight text-white">Dashboard</h1>
+              <h1 className="mb-2 font-sans text-3xl font-bold tracking-tight text-white">
+                {eli5Mode ? "My AI Fairness Dashboard" : "Dashboard"}
+              </h1>
               <p className="text-sm text-muted-foreground">
-                Overview of your fairness audit portfolio — track bias trends, compliance scores, and recent audit activity.
+                {eli5Mode
+                  ? "This is your fairness control room. It shows how fair your AI is, where the problems are, and what you can do to fix them."
+                  : "Overview of your fairness audit portfolio — track bias trends, compliance scores, and recent audit activity."}
               </p>
             </div>
-            <Button asChild className="bg-primary text-black hover:bg-primary/90">
-              <Link to="/analyzer">
-                <Plus className="mr-2 h-4 w-4" />
-                New Audit
-              </Link>
-            </Button>
+            <div className="flex items-center gap-3">
+              <ELI5ModeToggle enabled={eli5Mode} onToggle={() => setEli5Mode((v) => !v)} />
+              <Button asChild className="bg-primary text-black hover:bg-primary/90">
+                <Link to="/analyzer">
+                  <Plus className="mr-2 h-4 w-4" />
+                  {eli5Mode ? "Check My Data" : "New Audit"}
+                </Link>
+              </Button>
+            </div>
           </div>
         </div>
 
         <QuickStats stats={quickStats} />
-        <QuickActions />
+
+        {/* Before/After Overview */}
+        {analyses.length > 0 && (() => {
+          const latest = analyses[0];
+          const findings = latest?.result?.sensitive_findings ?? [];
+          const corrected = latest?.result?.corrected_sensitive_findings ?? [];
+          const slices: BiasSlice[] = findings.map((f: any) => {
+            const c = corrected.find((x: any) => x.sensitive_column === f.sensitive_column);
+            return {
+              attribute: f.sensitive_column,
+              originalScore: f.fairness_score,
+              correctedScore: c?.fairness_score ?? null,
+              originalDI: f.disparate_impact,
+              correctedDI: c?.disparate_impact ?? null,
+              riskLevel: f.risk_level,
+            };
+          });
+          if (!slices.length) return null;
+          return (
+            <section className="card-glow p-8">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
+                    {eli5Mode ? "Latest fairness result" : "Latest Audit — Before vs After"}
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-white">
+                    {eli5Mode
+                      ? `How fair is "${latest.input?.fileName}" for each group?`
+                      : `${latest.input?.fileName} — Sensitive Attribute Comparison`}
+                    <TermBadge term="Fairness Score" />
+                  </h2>
+                </div>
+                <Link
+                  to={`/mitigation`}
+                  className="flex shrink-0 items-center gap-1.5 border border-emerald-500/20 bg-emerald-500/5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-emerald-300 hover:bg-emerald-500/10 transition"
+                >
+                  {eli5Mode ? "Fix This →" : "Open Mitigation →"}
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              </div>
+              {eli5Mode && (
+                <p className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2 text-sm text-amber-300/80">
+                  📖 <strong>ELI5:</strong> Each bar represents a different group (like men vs women, or age groups). Faded bar = before we tried to fix the AI. Bright bar = how fair it could be after fixing.
+                </p>
+              )}
+              <BiasBeforeAfter
+                slices={slices}
+                title={eli5Mode ? "Fairness Before vs After Bias Fix" : "Fairness Score by Sensitive Attribute"}
+                subtitle={eli5Mode
+                  ? "Green = fair enough · Amber = borderline · Red = unfair (needs fixing)"
+                  : "Baseline fairness scores and corrected outcomes per demographic slice"}
+                compact
+                showDI={!eli5Mode}
+                showDP={false}
+              />
+            </section>
+          );
+        })()}
+
+        {/* All tools */}
+        <QuickActions view="all" />
+
+        <section className="card-glow p-8 bg-gradient-to-br from-black to-primary/5 border-l-4 border-l-primary relative overflow-hidden">
+           <div className="absolute top-0 right-0 p-4 opacity-10">
+              <Activity className="h-32 w-32" />
+           </div>
+           <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
+              <div className="space-y-2">
+                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-primary" />
+                    {eli5Mode ? "See the Real Human Impact of Bias" : "Live Bias Impact Simulation"}
+                 </h2>
+                 <p className="text-sm text-muted-foreground max-w-2xl">
+                    {eli5Mode
+                      ? "Ever wonder how many real people are being unfairly rejected by an AI? The Bias Simulator lets you move a slider and watch the numbers change in real time — so you can feel the human cost of unfair AI."
+                      : "Experience how algorithmic bias silently impacts human lives. Adjust model weights and witness real-time discriminatory outcomes across different demographics."}
+                 </p>
+              </div>
+              <Button asChild className="bg-primary text-black font-bold h-12 px-8">
+                 <Link to="/simulator">{eli5Mode ? "See Human Impact" : "Launch Simulator"}</Link>
+              </Button>
+           </div>
+        </section>
 
         {/* Charts Row */}
         <div className="grid gap-6 lg:grid-cols-[1fr_400px] xl:grid-cols-[1fr_500px]">
           {/* Radar: Attribute Fairness */}
           <div className="card-glow group relative flex min-h-[400px] flex-col rounded-xl p-6">
             <div className="mb-6">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-white">Fairness by Attribute</h3>
-              <p className="mt-1 text-xs text-muted-foreground">Baseline vs corrected scores across sensitive attributes</p>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-white">
+                {eli5Mode ? "Spider Chart: Fairness by Group" : "Fairness by Attribute"}
+                <TermBadge term="Sensitive Attribute" />
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {eli5Mode
+                  ? "Each spoke = a different group. Outer edge = perfectly fair. Inner = severely biased."
+                  : "Baseline vs corrected scores across sensitive attributes"}
+              </p>
             </div>
             <div className="min-h-[300px] flex-1">
               {radarData.length ? (
@@ -128,8 +225,15 @@ export default function DashboardPage() {
           {/* Bar: Bias Distribution */}
           <div className="card-glow flex min-h-[400px] flex-col rounded-xl p-6">
             <div className="mb-6">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-white">Bias Score Distribution</h3>
-              <p className="mt-1 text-xs text-muted-foreground">How bias scores are distributed across your audits</p>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-white">
+                {eli5Mode ? "How often is the AI this unfair?" : "Bias Score Distribution"}
+                <TermBadge term="Fairness Score" />
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {eli5Mode
+                  ? "Taller bars = more audits landed in that fairness range. Most should be on the right (fair)."
+                  : "How bias scores are distributed across your audits"}
+              </p>
             </div>
             <div className="mt-4 min-h-[250px] flex-1">
               {analyses.length ? (
@@ -169,8 +273,14 @@ export default function DashboardPage() {
         <div className="card-glow relative rounded-xl p-8">
           <div className="mb-10 flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
             <div>
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-white">Fairness Trend Over Time</h3>
-              <p className="mt-1 text-xs text-muted-foreground">{lineTrend.description}</p>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-white">
+                {eli5Mode ? "Is the AI getting fairer over time?" : "Fairness Trend Over Time"}
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {eli5Mode
+                  ? "This chart shows whether your AI is getting better or worse at treating people fairly with each new audit. Going up = improving!"
+                  : lineTrend.description}
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-4 border border-white/5 bg-black/40 px-4 py-2 backdrop-blur-sm">
@@ -220,24 +330,48 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* CTA */}
-        <div className="card-glow relative overflow-hidden border border-primary/20 bg-primary/5 p-8">
-          <div className="relative z-10 flex flex-col items-center gap-6 md:flex-row md:items-start">
-            <div className="flex-1 space-y-3 text-center md:text-left">
-              <h3 className="text-xl font-bold text-white">Ready to audit a new dataset?</h3>
-              <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                Upload your dataset file (CSV, XLSX, or JSON). FairLens will automatically detect sensitive attributes,
-                evaluate fairness metrics, and generate a corrected output with a full audit report.
-              </p>
-              <div className="pt-4">
-                <Button asChild className="bg-primary px-8 py-6 text-sm font-bold text-black hover:bg-primary/90">
-                  <Link to="/analyzer">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Start New Audit
-                  </Link>
-                </Button>
-              </div>
+        {/* CTA - Two CTAs: dataset and model */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="card-glow relative overflow-hidden border border-primary/20 bg-primary/5 p-8">
+            <div className="mb-4 flex items-center gap-2">
+              <Database className="h-5 w-5 text-primary" />
+              <p className="text-[10px] font-mono uppercase tracking-widest text-primary">Dataset Analysis</p>
             </div>
+            <h3 className="text-lg font-bold text-white mb-2">
+              {eli5Mode ? "Check if my data is biased" : "Run Dataset Fairness Audit"}
+            </h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              {eli5Mode
+                ? "Upload a CSV file of your data and we'll check if certain groups are being unfairly treated. Takes 30 seconds."
+                : "Upload a CSV/XLSX dataset. FairLens auto-detects sensitive attributes and generates a corrected output with a full audit report."}
+            </p>
+            <Button asChild className="bg-primary text-sm font-bold text-black hover:bg-primary/90">
+              <Link to="/analyzer">
+                <Plus className="mr-2 h-4 w-4" />
+                {eli5Mode ? "Upload My Data" : "Start Dataset Audit"}
+              </Link>
+            </Button>
+          </div>
+
+          <div className="card-glow relative overflow-hidden border border-secondary/20 bg-secondary/5 p-8">
+            <div className="mb-4 flex items-center gap-2">
+              <Cpu className="h-5 w-5 text-secondary" />
+              <p className="text-[10px] font-mono uppercase tracking-widest text-secondary">Model Analysis</p>
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">
+              {eli5Mode ? "Check if my AI model is biased" : "Run ML Model Fairness Audit"}
+            </h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              {eli5Mode
+                ? "Upload your trained AI model file (.pkl, .h5) and we'll measure how fairly it treats different groups of people."
+                : "Upload a .pkl, .joblib, or .h5 model file for structured fairness evaluation including DPD, EOD, and per-group performance breakdown."}
+            </p>
+            <Button asChild className="bg-secondary text-sm font-bold text-black hover:bg-secondary/90">
+              <Link to="/model-analyzer">
+                <Plus className="mr-2 h-4 w-4" />
+                {eli5Mode ? "Upload My Model" : "Start Model Audit"}
+              </Link>
+            </Button>
           </div>
         </div>
       </div>

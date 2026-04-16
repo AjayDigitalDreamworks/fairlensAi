@@ -48,7 +48,7 @@ export function adaptAnalysisToComplianceDemo(analysis: AnalysisPayload, fallbac
   return {
     domain,
     scenario: `Latest Audit: ${analysis.input?.fileName ?? analysis.id}`,
-    description: `Mapped from FairLens analysis generated ${new Date(analysis.createdAt).toLocaleDateString()}`,
+    description: `Mapped from FairLens analysis generated ${new Date(analysis.createdAt || Date.now()).toLocaleDateString()}`,
     metrics: {
       disparate_impact: disparateImpact,
       dpd,

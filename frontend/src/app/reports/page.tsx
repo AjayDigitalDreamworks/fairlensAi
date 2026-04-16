@@ -1,6 +1,7 @@
 "use client";
 
 import Layout from "@/components/Layout";
+import { ELI5ModeToggle } from "@/components/ELI5Tooltip";
 import { Button } from "@/components/ui/button";
 import {
   deleteAnalysis as deleteAnalysisRequest,
@@ -46,6 +47,7 @@ export default function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyIds, setBusyIds] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [eli5Mode, setEli5Mode] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -270,31 +272,39 @@ export default function ReportsPage() {
           <div className="absolute left-0 top-0 h-full w-1 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]" />
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
-              <h1 className="mb-2 font-sans text-3xl font-bold tracking-tight text-white">Audit History & Reports</h1>
+              <h1 className="mb-2 font-sans text-3xl font-bold tracking-tight text-white">
+                {eli5Mode ? "My Dataset Audit History" : "Audit History & Reports"}
+              </h1>
               <p className="text-sm text-muted-foreground">
-                Access, download, and manage your audit report archive.
+                {eli5Mode
+                  ? "Every time you checked a dataset for bias, the results were saved here. You can download reports and corrected data anytime."
+                  : "Access, download, and manage your audit report archive."
+                }
               </p>
             </div>
 
-            {activeAnalysis && !loading && (
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  className="h-auto rounded-none bg-emerald-500 px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-black hover:bg-emerald-400"
-                  onClick={() => triggerBrowserDownload(getPdfReportUrl(activeAnalysis.id))}
-                >
-                  <Download className="mr-3 h-4 w-4" />
-                  Audit PDF
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto rounded-none border-white/5 bg-white/5 px-6 py-3 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white/10"
-                  onClick={() => triggerBrowserDownload(getCorrectedCsvUrl(activeAnalysis.id))}
-                >
-                  <FileText className="mr-3 h-4 w-4" />
-                  Corrected CSV
-                </Button>
-              </div>
-            )}
+            <div className="flex flex-col items-end gap-3">
+              <ELI5ModeToggle enabled={eli5Mode} onToggle={() => setEli5Mode((v) => !v)} />
+              {activeAnalysis && !loading && (
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    className="h-auto rounded-none bg-emerald-500 px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-black hover:bg-emerald-400"
+                    onClick={() => triggerBrowserDownload(getPdfReportUrl(activeAnalysis.id))}
+                  >
+                    <Download className="mr-3 h-4 w-4" />
+                    {eli5Mode ? "Download Report" : "Audit PDF"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-auto rounded-none border-white/5 bg-white/5 px-6 py-3 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-white/10"
+                    onClick={() => triggerBrowserDownload(getCorrectedCsvUrl(activeAnalysis.id))}
+                  >
+                    <FileText className="mr-3 h-4 w-4" />
+                    {eli5Mode ? "Download Fixed Data" : "Corrected CSV"}
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

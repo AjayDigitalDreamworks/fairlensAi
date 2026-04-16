@@ -223,10 +223,11 @@ function buildCertification(analysis: AnalysisPayload | null) {
 
   const passCount = criteria.filter((item) => item.passed).length;
   const level = passCount >= 5 ? "Platinum" : passCount >= 4 ? "Gold" : passCount >= 3 ? "Silver" : "Bronze";
-  const created = new Date(analysis.createdAt);
+  const rawDate = analysis.createdAt ? new Date(analysis.createdAt) : new Date();
+  const created = Number.isNaN(rawDate.getTime()) ? new Date() : rawDate;
   const expires = new Date(created);
   expires.setFullYear(expires.getFullYear() + 1);
-  const dateStamp = Number.isNaN(created.getTime()) ? new Date().toISOString().slice(0, 10).replace(/-/g, "") : created.toISOString().slice(0, 10).replace(/-/g, "");
+  const dateStamp = created.toISOString().slice(0, 10).replace(/-/g, "");
 
   return {
     id: `FS-${dateStamp}-${analysis.id.slice(0, 6).toUpperCase()}`,

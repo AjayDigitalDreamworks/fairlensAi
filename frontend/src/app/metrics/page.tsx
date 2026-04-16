@@ -2,6 +2,7 @@
 
 import Layout from "@/components/Layout";
 import ELI5Card from "@/components/ELI5Card";
+import { ELI5ModeToggle, ELI5Tooltip, TermBadge } from "@/components/ELI5Tooltip";
 import { Button } from "@/components/ui/button";
 import {
   formatMetric,
@@ -52,6 +53,7 @@ export default function MetricsPage() {
   const [sliceId, setSliceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [eli5Mode, setEli5Mode] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -306,15 +308,23 @@ export default function MetricsPage() {
     <Layout>
       <div className="space-y-8 pb-12">
         <section className="command-panel p-8">
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
-              <BarChart3 className="h-3.5 w-3.5" />
-              Fairness Metrics
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
+                <BarChart3 className="h-3.5 w-3.5" />
+                {eli5Mode ? "How Fair Is My Data?" : "Fairness Metrics"}
+              </div>
+              <h1 className="text-3xl font-bold text-white">
+                {eli5Mode ? "Dataset Fairness Report Card" : "Fairness Metrics"}
+              </h1>
+              <p className="max-w-4xl text-sm leading-7 text-muted-foreground">
+                {eli5Mode
+                  ? "This page shows how fairly your dataset treats different groups of people. Green means fair, red means unfair. The 'before' score shows the original bias, and 'after' shows the improvement."
+                  : "Detailed fairness scores, disparate impact, demographic parity, accuracy spread, and group-level metrics for each sensitive attribute — before and after bias correction."
+                }
+              </p>
             </div>
-            <h1 className="text-3xl font-bold text-white">Fairness Metrics</h1>
-            <p className="max-w-4xl text-sm leading-7 text-muted-foreground">
-              Detailed fairness scores, disparate impact, demographic parity, accuracy spread, and group-level metrics for each sensitive attribute — before and after bias correction.
-            </p>
+            <ELI5ModeToggle enabled={eli5Mode} onToggle={() => setEli5Mode((v) => !v)} />
           </div>
         </section>
 
@@ -426,8 +436,12 @@ export default function MetricsPage() {
               <section className="command-panel p-8">
                 <div className="mb-6 flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Configuration</p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Analysis Configuration</h2>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">
+                      {eli5Mode ? "How the AI was checked" : "Configuration"}
+                    </p>
+                    <h2 className="mt-2 text-xl font-semibold text-white">
+                      {eli5Mode ? "Audit Settings" : "Analysis Configuration"}
+                    </h2>
                   </div>
                   <Gauge className="h-5 w-5 text-emerald-400" />
                 </div>
@@ -445,8 +459,12 @@ export default function MetricsPage() {
               <section className="command-panel p-8">
                 <div className="mb-6 flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Model insights</p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Detection Notes & Key Features</h2>
+                    <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">
+                      {eli5Mode ? "What caused the bias?" : "Model insights"}
+                    </p>
+                    <h2 className="mt-2 text-xl font-semibold text-white">
+                      {eli5Mode ? "Key Factors Influencing Decisions" : "Detection Notes & Key Features"}
+                    </h2>
                   </div>
                   <RadarIcon className="h-5 w-5 text-emerald-400" />
                 </div>
@@ -481,8 +499,12 @@ export default function MetricsPage() {
             <section className="command-panel p-8">
               <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">Attribute explorer</p>
-                  <h2 className="mt-2 text-xl font-semibold text-white">Sensitive Attributes</h2>
+                  <p className="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-300">
+                    {eli5Mode ? "Explore each characteristic" : "Attribute explorer"}
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold text-white">
+                    {eli5Mode ? "Protected Characteristics" : "Sensitive Attributes"}
+                  </h2>
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {slices.map((slice) => (
@@ -504,7 +526,9 @@ export default function MetricsPage() {
               <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
                 <div className="card-glow rounded-xl p-6">
                   <div className="mb-6 flex items-center justify-between">
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-white opacity-80">Slice Fairness Lift</h3>
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-white opacity-80">
+                      {eli5Mode ? "Improvement by Characteristic" : "Slice Fairness Lift"}
+                    </h3>
                     <ShieldCheck className="h-4 w-4 text-emerald-400" />
                   </div>
                   <div className="h-[320px]">
@@ -525,7 +549,9 @@ export default function MetricsPage() {
                 <div className="card-glow rounded-xl p-6">
                   <div className="mb-6 flex items-center justify-between">
                     <div>
-                      <h3 className="text-xs font-bold uppercase tracking-widest text-white opacity-80">Metric Comparison</h3>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-white opacity-80">
+                        {eli5Mode ? "Fairness Details" : "Metric Comparison"}
+                      </h3>
                       <p className="mt-1 text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">
                         {activeSlice ? toTitleCase(activeSlice.key) : "No slice selected"}
                       </p>
@@ -556,9 +582,11 @@ export default function MetricsPage() {
               <section className="command-panel p-8">
                 <div className="mb-6 flex items-center justify-between">
                   <div>
-                    <h2 className="text-xl font-semibold text-white">Group Metric Comparison</h2>
+                    <h2 className="text-xl font-semibold text-white">
+                      {eli5Mode ? "Approval Rates by Group" : "Group Metric Comparison"}
+                    </h2>
                     <p className="mt-1 text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">
-                      Selection rate and accuracy by group
+                      {eli5Mode ? "How often each group gets a positive result" : "Selection rate and accuracy by group"}
                     </p>
                   </div>
                   <Gauge className="h-5 w-5 text-emerald-400" />
@@ -650,9 +678,11 @@ export default function MetricsPage() {
             <section className="command-panel p-8">
               <div className="mb-6 flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-semibold text-white">Detailed Group Metrics</h2>
+                  <h2 className="text-xl font-semibold text-white">
+                    {eli5Mode ? "Full Data Breakdown" : "Detailed Group Metrics"}
+                  </h2>
                   <p className="mt-1 text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">
-                    Original vs corrected TPR, FPR, FNR, accuracy, and selection rate
+                    {eli5Mode ? "The exact technical numbers for each group" : "Original vs corrected TPR, FPR, FNR, accuracy, and selection rate"}
                   </p>
                 </div>
                 <Download className="h-5 w-5 text-emerald-400" />

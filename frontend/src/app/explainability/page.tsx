@@ -6,9 +6,11 @@ import { generateGeminiExplanation, getAnalysis, listAnalyses } from "@/lib/api"
 import { formatMetric } from "@/lib/analysis-insights";
 import { loadAnalysisHistory, loadLatestAnalysis, saveAnalysis } from "@/lib/analysis-store";
 import type { AnalysisPayload } from "@/types/analysis";
-import { BrainCircuit, Loader2, MessageSquareText, Target } from "lucide-react";
+import { BrainCircuit, Loader2, MessageSquareText, Target, ArrowRight, Shield, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Link } from "react-router-dom";
+import { ELI5ModeToggle, ELI5Tooltip, TermBadge } from "@/components/ELI5Tooltip";
 
 export default function ExplainabilityPage() {
   const [analyses, setAnalyses] = useState<AnalysisPayload[]>([]);
@@ -18,6 +20,7 @@ export default function ExplainabilityPage() {
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [fullAnalysis, setFullAnalysis] = useState<AnalysisPayload | null>(null);
+  const [eli5Mode, setEli5Mode] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -111,15 +114,23 @@ export default function ExplainabilityPage() {
     <Layout>
       <div className="space-y-8 pb-12">
         <section className="card-glow overflow-hidden p-8">
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
-              <BrainCircuit className="h-3.5 w-3.5" />
-              Model Explainability Engine
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
+                <BrainCircuit className="h-3.5 w-3.5" />
+                {eli5Mode ? "Understanding Your AI" : "Model Explainability Engine"}
+              </div>
+              <h1 className="text-3xl font-bold text-white">
+                {eli5Mode ? "Why Did the AI Decide That?" : "Model Interpretability"}
+              </h1>
+              <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
+                {eli5Mode
+                  ? "This page shows which factors your AI relies on to make decisions. If a protected attribute (like race or gender) heavily influences decisions, it could be discriminating."
+                  : "This view now falls back to fairness findings, proxy-risk signals, and root-cause analysis when direct SHAP-style model drivers are unavailable."
+                }
+              </p>
             </div>
-            <h1 className="text-3xl font-bold text-white">Model Interpretability</h1>
-            <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
-              This view now falls back to fairness findings, proxy-risk signals, and root-cause analysis when direct SHAP-style model drivers are unavailable.
-            </p>
+            <ELI5ModeToggle enabled={eli5Mode} onToggle={() => setEli5Mode((v) => !v)} />
           </div>
         </section>
 
@@ -127,8 +138,8 @@ export default function ExplainabilityPage() {
           <div className="card-glow p-6">
             <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Analysis selector</p>
-                <h2 className="mt-2 text-xl font-semibold text-white">Choose a run</h2>
+                <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">{eli5Mode ? "Pick a dataset check" : "Analysis selector"}</p>
+                <h2 className="mt-2 text-xl font-semibold text-white">{eli5Mode ? "Which audit to inspect?" : "Choose a run"}</h2>
               </div>
               <select
                 value={analysisId ?? ""}
@@ -137,7 +148,7 @@ export default function ExplainabilityPage() {
               >
                 {analyses.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.input.fileName} | {new Date(item.createdAt).toLocaleString()}
+                    {item.input.fileName} | {new Date(item.createdAt || Date.now()).toLocaleString()}
                   </option>
                 ))}
               </select>
@@ -150,7 +161,7 @@ export default function ExplainabilityPage() {
             {analysis && (
               <div className="space-y-4">
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Run summary</p>
+                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">{eli5Mode ? "Audit overview" : "Run summary"}</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     <SummaryLine label="Dataset" value={analysis.input.fileName} />
                     <SummaryLine label="Domain" value={analysis.result.metadata.domain} />
@@ -185,12 +196,12 @@ export default function ExplainabilityPage() {
                   >
                     {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageSquareText className="mr-2 h-4 w-4" />}
                     {generating
-                      ? "Generating Narrative..."
+                      ? eli5Mode ? "Creating Summary..." : "Generating Narrative..."
                       : narrationStatus === "generated"
-                        ? "Regenerate Narrative interpretation"
+                        ? eli5Mode ? "Regenerate Summary" : "Regenerate Narrative interpretation"
                         : narrationStatus === "failed"
-                          ? "Retry Narrative interpretation"
-                          : "Generate Narrative interpretation"}
+                          ? eli5Mode ? "Retry Summary" : "Retry Narrative interpretation"
+                          : eli5Mode ? "Explain in Plain English" : "Generate Narrative interpretation"}
                   </Button>
                 </div>
 
@@ -203,8 +214,20 @@ export default function ExplainabilityPage() {
 
           <div className="card-glow p-6">
             <div className="mb-6">
-              <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Global attribution</p>
-              <h2 className="mt-2 text-xl font-semibold text-white">Top feature drivers</h2>
+              <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
+                {eli5Mode ? "What matters most" : "Global attribution"}
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-white flex items-center gap-2">
+                <ELI5Tooltip term="Feature Importance">
+                  {eli5Mode ? "Which Inputs Matter Most?" : "Top feature drivers"}
+                </ELI5Tooltip>
+                <TermBadge term="SHAP" />
+              </h2>
+              {eli5Mode && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Taller bars = the AI cares about this input more. If a protected attribute is tall, that's a red flag.
+                </p>
+              )}
             </div>
             <div className="h-[360px]">
               {chartData.length ? (
@@ -228,7 +251,7 @@ export default function ExplainabilityPage() {
           <div className="card-glow p-6">
             <div className="mb-5 flex flex-wrap items-center gap-3">
               <Target className="h-5 w-5 text-emerald-400" />
-              <h2 className="text-xl font-semibold text-white">Model impact feed</h2>
+              <h2 className="text-xl font-semibold text-white">{eli5Mode ? "How Each Factor Influences Decisions" : "Model impact feed"}</h2>
             </div>
             {impactFeed.length ? (
               <div className="space-y-3">
@@ -250,11 +273,16 @@ export default function ExplainabilityPage() {
           <div className="card-glow p-6">
             <div className="mb-5 flex flex-wrap items-center gap-3">
               <MessageSquareText className="h-5 w-5 text-cyan-400" />
-              <h2 className="text-xl font-semibold text-white">Audit narration</h2>
+              <h2 className="text-xl font-semibold text-white">{eli5Mode ? "AI Expert Summary" : "Audit narration"}</h2>
               <span className="border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.25em] text-cyan-300">
                 {getNarrationBadgeLabel(narrationStatus)}
               </span>
             </div>
+            {eli5Mode && (
+              <p className="mb-4 text-xs text-muted-foreground">
+                Click "Explain in Plain English" on the left panel to generate a human-readable summary of this audit.
+              </p>
+            )}
             <div className="space-y-4">
               {geminiInterpretation?.text ? (
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
@@ -263,8 +291,13 @@ export default function ExplainabilityPage() {
                 </div>
               ) : (
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">Narrator status</p>
-                  <p className="mt-3 text-sm leading-7 text-muted-foreground">{geminiInterpretation?.note || "No Narrator interpretation has been generated for this analysis yet."}</p>
+                  <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-emerald-300">
+                    {eli5Mode ? "Summary status" : "Narrator status"}
+                  </p>
+                  <p className="mt-3 text-sm leading-7 text-muted-foreground">
+                    {geminiInterpretation?.note
+                      || (eli5Mode ? "No plain-English summary yet. Click \"Explain in Plain English\" to generate one." : "No Narrator interpretation has been generated for this analysis yet.")}
+                  </p>
                 </div>
               )}
 
@@ -274,12 +307,12 @@ export default function ExplainabilityPage() {
                     key={`${item.feature}-${item.summary}`}
                     title={item.feature}
                     badge={item.direction}
-                    value={`impact ${formatMetric(item.impact, 4)}`}
+                    value={eli5Mode ? `influence: ${formatMetric(item.impact, 4)}` : `impact ${formatMetric(item.impact, 4)}`}
                     description={item.summary}
                   />
                 ))
               ) : (
-                <EmptyState message="This run did not return local SHAP samples, so the page is showing the strongest available audit details instead." />
+                <EmptyState message={eli5Mode ? "No detailed per-sample analysis available for this run. The page shows the strongest audit findings instead." : "This run did not return local SHAP samples, so the page is showing the strongest available audit details instead."} />
               )}
             </div>
           </div>

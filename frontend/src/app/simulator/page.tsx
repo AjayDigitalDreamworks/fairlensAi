@@ -1,12 +1,17 @@
 "use client";
 
 import Layout from "@/components/Layout";
+import { useSearchParams } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Info, Users, Activity, Target } from "lucide-react";
+import { Info, Users, Activity, Target, Zap } from "lucide-react";
 
 export default function SimulatorPage() {
-  const [biasLevel, setBiasLevel] = useState(50); // 0 to 100
+  const [searchParams] = useSearchParams();
+  const initialBias = Number(searchParams.get("bias")) || 50;
+  const attribute = searchParams.get("attribute") || "Gender";
+  
+  const [biasLevel, setBiasLevel] = useState(initialBias);
   const [isMitigating, setIsMitigating] = useState(false);
   
   // Generating people for the UI
@@ -49,7 +54,7 @@ export default function SimulatorPage() {
         <div className="card-glow p-8">
            <div className="mb-8">
               <label className="flex justify-between items-center mb-4">
-                 <span className="font-bold text-white text-lg">Model Bias Level (Gender Proxy)</span>
+                 <span className="font-bold text-white text-lg">Model Bias Level ({attribute})</span>
                  <span className={`px-3 py-1 rounded text-sm font-bold ${biasLevel > 30 ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}>{biasLevel}% Bias</span>
               </label>
               <input 
@@ -117,10 +122,10 @@ export default function SimulatorPage() {
            }`}>
               <div>
                  <div className={`text-2xl font-bold ${biasLevel > 30 ? 'text-red-400' : 'text-emerald-400'}`}>
-                    {biasLevel > 30 ? '💔' : '🎉'} {totalFemale - femaleHired} qualified women rejected unfairly
+                    {biasLevel > 30 ? '💔' : '🎉'} {totalFemale - femaleHired} qualified {attribute.toLowerCase() === 'gender' ? 'women' : 'individuals'} rejected unfairly
                  </div>
                  <p className="text-sm text-white/50 mt-1">
-                    In a real company with 100,000 applications/year, that's {(totalFemale - femaleHired) * 1000} human beings denied opportunities due to algorithmic bias.
+                    In a real company with 100,000 applications/year, that's {(totalFemale - femaleHired) * 1000} human beings denied opportunities due to {attribute.toLowerCase()} bias.
                  </p>
               </div>
 
